@@ -1,0 +1,15 @@
+<resources>
+    <style name="Theme.EutherTime" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:navigationBarColor">@color/euther_black</item>
+        <item name="android:statusBarColor">@color/euther_black</item>
+        <item name="android:windowBackground">@color/euther_black</item>
+    </style>
+
+    <style name="Theme.EutherTime.Alarm" parent="Theme.EutherTime">
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowDisablePreview">true</item>
+    </style>
+</resources>

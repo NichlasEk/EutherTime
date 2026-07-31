@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">EutherTime</string>
+    <string name="alarm_channel_name">EutherTime alarms</string>
+    <string name="alarm_channel_description">Active alarms, timers, and Egg Protocol alerts</string>
+    <string name="dismiss">Dismiss</string>
+    <string name="snooze">Snooze</string>
+</resources>
