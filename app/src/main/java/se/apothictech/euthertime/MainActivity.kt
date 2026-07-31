@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -39,6 +40,8 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -50,6 +53,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,6 +65,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -388,22 +393,115 @@ private fun TimerScreen(
     onArm: (Long, String, AlarmKind) -> Unit,
     onCancel: (ScheduledAlarm) -> Unit,
 ) {
+    var hours by rememberSaveable { mutableStateOf("") }
+    var minutes by rememberSaveable { mutableStateOf("") }
+    var seconds by rememberSaveable { mutableStateOf("") }
+    val hourValue = hours.toIntOrNull() ?: 0
+    val minuteValue = minutes.toIntOrNull() ?: 0
+    val secondValue = seconds.toIntOrNull() ?: 0
+    val selectedMillis = durationMillis(hourValue, minuteValue, secondValue)
+
     Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 16.dp)) {
-        SectionTitle("COUNTDOWN MATRIX", "Fast deterministic timers")
+        SectionTitle("COUNTDOWN MATRIX", "Set an exact duration")
+        CyberPanel(title = "DURATION // HH : MM : SS") {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                DurationEntryField(
+                    label = "HOURS",
+                    value = hours,
+                    maxValue = 99,
+                    modifier = Modifier.weight(1f),
+                    onValueChange = { hours = it },
+                )
+                Text(":", color = Toxic, fontFamily = FontFamily.Monospace, fontSize = 28.sp)
+                DurationEntryField(
+                    label = "MIN",
+                    value = minutes,
+                    maxValue = 59,
+                    modifier = Modifier.weight(1f),
+                    onValueChange = { minutes = it },
+                )
+                Text(":", color = Toxic, fontFamily = FontFamily.Monospace, fontSize = 28.sp)
+                DurationEntryField(
+                    label = "SEC",
+                    value = seconds,
+                    maxValue = 59,
+                    modifier = Modifier.weight(1f),
+                    onValueChange = { seconds = it },
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            PrimaryProtocolButton(
+                label = if (selectedMillis > 0) "START // ${formatDurationClock(selectedMillis)}" else "ENTER DURATION",
+                enabled = selectedMillis > 0,
+            ) {
+                onArm(
+                    now + selectedMillis,
+                    "Timer ${formatDurationClock(selectedMillis)}",
+                    AlarmKind.TIMER,
+                )
+            }
+        }
+        Spacer(Modifier.height(18.dp))
         Text("QUICK PROTOCOLS", color = Amber, fontFamily = FontFamily.Monospace, fontSize = 10.sp, letterSpacing = 2.sp)
         Row(
             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            listOf(1, 3, 5, 10, 20, 45).forEach { minutes ->
-                SmallProtocolButton("$minutes MIN") {
-                    onArm(now + minutes * 60_000L, "$minutes minute timer", AlarmKind.TIMER)
+            listOf(1, 3, 5, 10, 20, 45).forEach { quickMinutes ->
+                SmallProtocolButton("$quickMinutes MIN") {
+                    hours = ""
+                    minutes = quickMinutes.toString()
+                    seconds = ""
                 }
             }
         }
         alarms.forEach { alarm -> ScheduledCard(alarm, now, onCancel) }
         if (alarms.isEmpty()) EmptyState("NO COUNTDOWNS ACTIVE")
     }
+}
+
+@Composable
+private fun DurationEntryField(
+    label: String,
+    value: String,
+    maxValue: Int,
+    modifier: Modifier = Modifier,
+    onValueChange: (String) -> Unit,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = { raw ->
+            val digits = raw.filter(Char::isDigit).take(2)
+            onValueChange(
+                if (digits.isEmpty()) "" else digits.toInt().coerceAtMost(maxValue).toString(),
+            )
+        },
+        modifier = modifier,
+        singleLine = true,
+        placeholder = {
+            Text("00", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+        },
+        label = { Text(label, fontFamily = FontFamily.Monospace, fontSize = 9.sp) },
+        textStyle = MaterialTheme.typography.headlineMedium.copy(
+            color = Toxic,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
+        ),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = Toxic,
+            unfocusedBorderColor = Toxic.copy(alpha = 0.25f),
+            focusedLabelColor = Toxic,
+            unfocusedLabelColor = Ice.copy(alpha = 0.45f),
+            cursorColor = Amber,
+        ),
+        shape = RoundedCornerShape(3.dp),
+    )
 }
 
 private enum class EggState(val title: String, val seconds: Int, val detail: String) {
@@ -620,10 +718,12 @@ private fun PrimaryProtocolButton(
     label: String,
     modifier: Modifier = Modifier,
     accent: Color = Toxic,
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
     Button(
         onClick = onClick,
+        enabled = enabled,
         colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Void),
         shape = RoundedCornerShape(3.dp),
         modifier = modifier.fillMaxWidth().height(52.dp),
@@ -681,6 +781,18 @@ private fun formatDuration(millis: Long): String {
     val seconds = totalSeconds % 60L
     return if (hours > 0) "%02d:%02d:%02d".format(hours, minutes, seconds) else "%02d:%02d".format(minutes, seconds)
 }
+
+private fun formatDurationClock(millis: Long): String {
+    val totalSeconds = millis.coerceAtLeast(0L) / 1_000L
+    return "%02d:%02d:%02d".format(
+        totalSeconds / 3_600L,
+        (totalSeconds % 3_600L) / 60L,
+        totalSeconds % 60L,
+    )
+}
+
+internal fun durationMillis(hours: Int, minutes: Int, seconds: Int): Long =
+    (hours * 3_600L + minutes * 60L + seconds) * 1_000L
 
 private fun formatChrono(millis: Long): String {
     val minutes = millis / 60_000L
