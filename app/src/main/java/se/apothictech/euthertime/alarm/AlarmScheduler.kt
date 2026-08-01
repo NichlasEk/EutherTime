@@ -2,12 +2,14 @@ package se.apothictech.euthertime.alarm
 
 import android.annotation.SuppressLint
 import android.app.AlarmManager
+import android.app.NotificationManager
 import android.app.PendingIntent
-import android.os.Build
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 
 object AlarmScheduler {
+    const val REMINDER_LEAD_MILLIS = 30 * 60_000L
     const val EXTRA_ALARM_ID = "alarm_id"
     const val EXTRA_LABEL = "alarm_label"
     const val EXTRA_KIND = "alarm_kind"
@@ -37,6 +39,9 @@ object AlarmScheduler {
     fun cancel(context: Context, id: Int) {
         val manager = context.getSystemService(AlarmManager::class.java)
         manager.cancel(triggerIntent(context, id))
+        manager.cancel(reminderIntent(context, id))
+        context.getSystemService(NotificationManager::class.java)
+            .cancel(AlarmNotifications.reminderNotificationId(id))
         AlarmStore.remove(context, id)
     }
 
@@ -74,6 +79,14 @@ object AlarmScheduler {
             AlarmManager.AlarmClockInfo(alarm.triggerAtMillis, showIntent),
             triggerIntent(context, alarm.id),
         )
+
+        reminderTriggerAtMillis(alarm, System.currentTimeMillis())?.let { reminderAtMillis ->
+            manager.setExactAndAllowWhileIdle(
+                AlarmManager.RTC_WAKEUP,
+                reminderAtMillis,
+                reminderIntent(context, alarm.id),
+            )
+        }
     }
 
     private fun triggerIntent(context: Context, id: Int): PendingIntent =
@@ -83,4 +96,18 @@ object AlarmScheduler {
             Intent(context, AlarmReceiver::class.java).putExtra(EXTRA_ALARM_ID, id),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+
+    private fun reminderIntent(context: Context, id: Int): PendingIntent =
+        PendingIntent.getBroadcast(
+            context,
+            id,
+            Intent(context, AlarmReminderReceiver::class.java).putExtra(EXTRA_ALARM_ID, id),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+    internal fun reminderTriggerAtMillis(alarm: ScheduledAlarm, nowMillis: Long): Long? {
+        if (alarm.kind != AlarmKind.ALARM) return null
+        val reminderAtMillis = alarm.triggerAtMillis - REMINDER_LEAD_MILLIS
+        return reminderAtMillis.takeIf { it > nowMillis }
+    }
 }

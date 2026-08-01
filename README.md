@@ -12,6 +12,7 @@ This project is implemented from scratch. It does not contain source code, visua
 - Dedicated Egg Protocol with consistency, size, and starting-temperature controls
 - Stopwatch with lap markers
 - Alarm sound, vibration, full-screen alarm activity, dismiss and five-minute snooze
+- Silent heads-up notice 30 minutes before alarms, with a one-tap disarm action
 - Re-scheduling after boot, time changes, and timezone changes
 - Direct-boot-aware alarm storage
 - No network permission, analytics, accounts, ads, or telemetry

@@ -53,6 +53,11 @@
             android:exported="false" />
 
         <receiver
+            android:name=".alarm.AlarmReminderReceiver"
+            android:directBootAware="true"
+            android:exported="false" />
+
+        <receiver
             android:name=".alarm.AlarmActionReceiver"
             android:directBootAware="true"
             android:exported="false" />
