@@ -11,6 +11,10 @@ class AlarmActionReceiver : BroadcastReceiver() {
 
         when (intent.action) {
             ACTION_CANCEL_UPCOMING -> AlarmScheduler.cancel(context, id)
+            ACTION_CANCEL_WAKE_SET -> {
+                context.stopService(Intent(context, AlarmSoundService::class.java))
+                AlarmScheduler.cancelWakeSet(context, id)
+            }
             ACTION_SNOOZE -> {
                 context.stopService(Intent(context, AlarmSoundService::class.java))
                 if (alarm != null) AlarmScheduler.snooze(context, alarm)
@@ -26,5 +30,6 @@ class AlarmActionReceiver : BroadcastReceiver() {
         const val ACTION_DISMISS = "se.apothictech.euthertime.DISMISS"
         const val ACTION_SNOOZE = "se.apothictech.euthertime.SNOOZE"
         const val ACTION_CANCEL_UPCOMING = "se.apothictech.euthertime.CANCEL_UPCOMING"
+        const val ACTION_CANCEL_WAKE_SET = "se.apothictech.euthertime.CANCEL_WAKE_SET"
     }
 }

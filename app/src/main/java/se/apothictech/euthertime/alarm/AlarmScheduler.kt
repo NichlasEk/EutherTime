@@ -10,6 +10,7 @@ import android.os.Build
 
 object AlarmScheduler {
     const val REMINDER_LEAD_MILLIS = 30 * 60_000L
+    const val WAKE_SET_WINDOW_MILLIS = 2 * 60 * 60_000L
     private const val MINIMUM_REMINDER_DELAY_MILLIS = 1_000L
     const val EXTRA_ALARM_ID = "alarm_id"
     const val EXTRA_LABEL = "alarm_label"
@@ -45,6 +46,14 @@ object AlarmScheduler {
             .cancel(AlarmNotifications.reminderNotificationId(id))
         AlarmStore.remove(context, id)
     }
+
+    fun cancelWakeSet(context: Context, anchorId: Int) {
+        val anchor = AlarmStore.get(context, anchorId) ?: return
+        wakeSet(anchor, AlarmStore.all(context)).forEach { cancel(context, it.id) }
+    }
+
+    fun hasWakeSetCompanions(context: Context, anchor: ScheduledAlarm): Boolean =
+        wakeSet(anchor, AlarmStore.all(context)).any { it.id != anchor.id }
 
     fun snooze(context: Context, alarm: ScheduledAlarm, minutes: Int = 5) {
         schedule(
@@ -113,5 +122,15 @@ object AlarmScheduler {
             nowMillis + MINIMUM_REMINDER_DELAY_MILLIS,
         )
         return reminderAtMillis.takeIf { it < alarm.triggerAtMillis }
+    }
+
+    internal fun wakeSet(anchor: ScheduledAlarm, alarms: List<ScheduledAlarm>): List<ScheduledAlarm> {
+        if (anchor.kind != AlarmKind.ALARM) return listOf(anchor)
+        val endMillis = anchor.triggerAtMillis + WAKE_SET_WINDOW_MILLIS
+        return alarms.filter {
+            it.kind == AlarmKind.ALARM &&
+                it.triggerAtMillis >= anchor.triggerAtMillis &&
+                it.triggerAtMillis <= endMillis
+        }.sortedBy { it.triggerAtMillis }
     }
 }

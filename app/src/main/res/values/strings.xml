@@ -7,6 +7,9 @@
     <string name="pre_alarm_title">PRE-ALARM</string>
     <string name="pre_alarm_message">%1$s · armed for %2$s</string>
     <string name="disarm">Disarm</string>
+    <string name="disarm_this">This alarm</string>
+    <string name="disarm_set">Clear wake set</string>
+    <string name="dismiss_set">I’m up · Clear set</string>
     <string name="dismiss">Dismiss</string>
     <string name="snooze">Snooze</string>
 </resources>

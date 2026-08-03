@@ -40,6 +40,7 @@ class AlarmRingActivity : ComponentActivity() {
         val kind = alarm?.kind ?: runCatching {
             AlarmKind.valueOf(intent.getStringExtra(AlarmScheduler.EXTRA_KIND).orEmpty())
         }.getOrDefault(AlarmKind.ALARM)
+        val hasWakeSetCompanions = alarm?.let { AlarmScheduler.hasWakeSetCompanions(this, it) } == true
 
         setContent {
             RingScreen(
@@ -47,6 +48,8 @@ class AlarmRingActivity : ComponentActivity() {
                 kind = kind,
                 onDismiss = { complete(id, false) },
                 onSnooze = { complete(id, true) },
+                onDismissSet = { dismissWakeSet(id) },
+                hasWakeSetCompanions = hasWakeSetCompanions,
             )
         }
     }
@@ -60,10 +63,27 @@ class AlarmRingActivity : ComponentActivity() {
         setResult(Activity.RESULT_OK)
         finishAndRemoveTask()
     }
+
+    private fun dismissWakeSet(id: Int) {
+        sendBroadcast(
+            Intent(this, AlarmActionReceiver::class.java)
+                .setAction(AlarmActionReceiver.ACTION_CANCEL_WAKE_SET)
+                .putExtra(AlarmScheduler.EXTRA_ALARM_ID, id),
+        )
+        setResult(Activity.RESULT_OK)
+        finishAndRemoveTask()
+    }
 }
 
 @Composable
-private fun RingScreen(label: String, kind: AlarmKind, onDismiss: () -> Unit, onSnooze: () -> Unit) {
+private fun RingScreen(
+    label: String,
+    kind: AlarmKind,
+    onDismiss: () -> Unit,
+    onSnooze: () -> Unit,
+    onDismissSet: () -> Unit,
+    hasWakeSetCompanions: Boolean,
+) {
     val green = Color(0xFF74FF63)
     val amber = Color(0xFFFFB000)
     Box(
@@ -117,6 +137,15 @@ private fun RingScreen(label: String, kind: AlarmKind, onDismiss: () -> Unit, on
                     colors = ButtonDefaults.buttonColors(containerColor = green, contentColor = Color.Black),
                     modifier = Modifier.weight(1f),
                 ) { Text("DISMISS", fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold) }
+            }
+            if (hasWakeSetCompanions) {
+                Button(
+                    onClick = onDismissSet,
+                    colors = ButtonDefaults.buttonColors(containerColor = green, contentColor = Color.Black),
+                    modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+                ) {
+                    Text("I'M UP · DISMISS SET", fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                }
             }
         }
     }

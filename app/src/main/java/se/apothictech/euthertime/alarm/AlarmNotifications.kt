@@ -69,6 +69,11 @@ object AlarmNotifications {
             alarm.id,
             AlarmActionReceiver.ACTION_CANCEL_UPCOMING,
         )
+        val cancelSetIntent = actionIntent(
+            context,
+            alarm.id,
+            AlarmActionReceiver.ACTION_CANCEL_WAKE_SET,
+        )
         val alarmTime = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(alarm.triggerAtMillis))
         val notification = NotificationCompat.Builder(context, REMINDER_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_euthertime)
@@ -82,7 +87,12 @@ object AlarmNotifications {
             .setOnlyAlertOnce(true)
             .setAutoCancel(true)
             .setContentIntent(openAppIntent)
-            .addAction(0, context.getString(R.string.disarm), cancelIntent)
+            .addAction(0, context.getString(R.string.disarm_this), cancelIntent)
+            .apply {
+                if (AlarmScheduler.hasWakeSetCompanions(context, alarm)) {
+                    addAction(0, context.getString(R.string.disarm_set), cancelSetIntent)
+                }
+            }
             .build()
 
         runCatching {
@@ -110,6 +120,7 @@ object AlarmNotifications {
         )
         val dismissIntent = actionIntent(context, alarm.id, AlarmActionReceiver.ACTION_DISMISS)
         val snoozeIntent = actionIntent(context, alarm.id, AlarmActionReceiver.ACTION_SNOOZE)
+        val dismissSetIntent = actionIntent(context, alarm.id, AlarmActionReceiver.ACTION_CANCEL_WAKE_SET)
 
         return NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_euthertime)
@@ -125,6 +136,11 @@ object AlarmNotifications {
             .setFullScreenIntent(ringPendingIntent, true)
             .addAction(0, context.getString(R.string.snooze), snoozeIntent)
             .addAction(0, context.getString(R.string.dismiss), dismissIntent)
+            .apply {
+                if (AlarmScheduler.hasWakeSetCompanions(context, alarm)) {
+                    addAction(0, context.getString(R.string.dismiss_set), dismissSetIntent)
+                }
+            }
             .build()
     }
 
