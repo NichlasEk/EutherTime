@@ -24,8 +24,16 @@ class AlarmReminderSchedulingTest {
     }
 
     @Test
-    fun alarmInsideThirtyMinuteWindowDoesNotScheduleInThePast() {
-        assertNull(AlarmScheduler.reminderTriggerAtMillis(scheduled(AlarmKind.ALARM, now + 900_000L), now))
+    fun alarmInsideThirtyMinuteWindowGetsAnAlmostImmediateReminder() {
+        assertEquals(
+            now + 1_000L,
+            AlarmScheduler.reminderTriggerAtMillis(scheduled(AlarmKind.ALARM, now + 900_000L), now),
+        )
+    }
+
+    @Test
+    fun alarmTooCloseToFitReminderDoesNotScheduleAfterItRings() {
+        assertNull(AlarmScheduler.reminderTriggerAtMillis(scheduled(AlarmKind.ALARM, now + 500L), now))
     }
 
     private fun scheduled(kind: AlarmKind, triggerAtMillis: Long) = ScheduledAlarm(

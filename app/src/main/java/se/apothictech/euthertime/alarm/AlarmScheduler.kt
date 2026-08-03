@@ -10,6 +10,7 @@ import android.os.Build
 
 object AlarmScheduler {
     const val REMINDER_LEAD_MILLIS = 30 * 60_000L
+    private const val MINIMUM_REMINDER_DELAY_MILLIS = 1_000L
     const val EXTRA_ALARM_ID = "alarm_id"
     const val EXTRA_LABEL = "alarm_label"
     const val EXTRA_KIND = "alarm_kind"
@@ -107,7 +108,10 @@ object AlarmScheduler {
 
     internal fun reminderTriggerAtMillis(alarm: ScheduledAlarm, nowMillis: Long): Long? {
         if (alarm.kind != AlarmKind.ALARM) return null
-        val reminderAtMillis = alarm.triggerAtMillis - REMINDER_LEAD_MILLIS
-        return reminderAtMillis.takeIf { it > nowMillis }
+        val reminderAtMillis = maxOf(
+            alarm.triggerAtMillis - REMINDER_LEAD_MILLIS,
+            nowMillis + MINIMUM_REMINDER_DELAY_MILLIS,
+        )
+        return reminderAtMillis.takeIf { it < alarm.triggerAtMillis }
     }
 }

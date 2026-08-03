@@ -254,7 +254,7 @@ private fun SystemHeader(now: Long, next: ScheduledAlarm?) {
                 letterSpacing = 2.sp,
             )
             Text(
-                "CHRONOMETRIC SYSTEM 0.1",
+                "CHRONOMETRIC SYSTEM ${BuildConfig.VERSION_NAME}",
                 color = Toxic.copy(alpha = 0.48f),
                 fontFamily = FontFamily.Monospace,
                 fontSize = 9.sp,
