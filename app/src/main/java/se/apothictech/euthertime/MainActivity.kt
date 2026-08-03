@@ -1,10 +1,14 @@
 package se.apothictech.euthertime
 
 import android.Manifest
+import android.app.NotificationManager
 import android.app.TimePickerDialog
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -111,10 +115,37 @@ private fun EutherTimeApp() {
     var selectedTab by remember { mutableStateOf(TimeTab.CLOCK) }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var revision by remember { mutableIntStateOf(0) }
+    val requestFullScreenAlarmAccess = remember(context) {
+        {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                val notificationManager = context.getSystemService(NotificationManager::class.java)
+                if (!notificationManager.canUseFullScreenIntent()) {
+                    Toast.makeText(
+                        context,
+                        "Allow full-screen alarms so Snooze and Dismiss appear over the lock screen",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    runCatching {
+                        context.startActivity(
+                            Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).apply {
+                                data = Uri.parse("package:${context.packageName}")
+                            },
+                        )
+                    }.onFailure {
+                        Toast.makeText(context, "Open EutherTime settings and allow full-screen alarms", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+    }
     val notificationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
-        if (!granted) Toast.makeText(context, "Notification permission is needed for full-screen alarms", Toast.LENGTH_LONG).show()
+        if (granted) {
+            requestFullScreenAlarmAccess()
+        } else {
+            Toast.makeText(context, "Notification permission is needed for full-screen alarms", Toast.LENGTH_LONG).show()
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -126,10 +157,12 @@ private fun EutherTimeApp() {
     }
 
     fun arm(triggerAt: Long, label: String, kind: AlarmKind) {
-        if (Build.VERSION.SDK_INT >= 33 &&
+        val needsNotificationPermission = Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
+        if (needsNotificationPermission) {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            requestFullScreenAlarmAccess()
         }
         runCatching { AlarmScheduler.create(context, triggerAt, label, kind) }
             .onSuccess {
