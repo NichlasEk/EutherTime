@@ -121,11 +121,14 @@ object AlarmNotifications {
         val dismissIntent = actionIntent(context, alarm.id, AlarmActionReceiver.ACTION_DISMISS)
         val snoozeIntent = actionIntent(context, alarm.id, AlarmActionReceiver.ACTION_SNOOZE)
         val dismissSetIntent = actionIntent(context, alarm.id, AlarmActionReceiver.ACTION_CANCEL_WAKE_SET)
+        val hasWakeSetCompanions = AlarmScheduler.hasWakeSetCompanions(context, alarm)
 
         return NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_euthertime)
             .setColor(Color.rgb(116, 255, 99))
-            .setContentTitle(alarm.label)
+            .setContentTitle(
+                if (alarm.wakeSetId != null) "${alarm.label} · ${alarm.stageRole.name}" else alarm.label,
+            )
             .setContentText(messageFor(alarm.kind))
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setPriority(NotificationCompat.PRIORITY_MAX)
@@ -135,9 +138,13 @@ object AlarmNotifications {
             .setContentIntent(ringPendingIntent)
             .setFullScreenIntent(ringPendingIntent, true)
             .addAction(0, context.getString(R.string.snooze), snoozeIntent)
-            .addAction(0, context.getString(R.string.dismiss), dismissIntent)
+            .addAction(
+                0,
+                context.getString(if (hasWakeSetCompanions) R.string.next_signal else R.string.dismiss),
+                dismissIntent,
+            )
             .apply {
-                if (AlarmScheduler.hasWakeSetCompanions(context, alarm)) {
+                if (hasWakeSetCompanions) {
                     addAction(0, context.getString(R.string.dismiss_set), dismissSetIntent)
                 }
             }

@@ -81,6 +81,8 @@ import se.apothictech.euthertime.alarm.AlarmKind
 import se.apothictech.euthertime.alarm.AlarmScheduler
 import se.apothictech.euthertime.alarm.AlarmStore
 import se.apothictech.euthertime.alarm.ScheduledAlarm
+import se.apothictech.euthertime.alarm.WakeStageDraft
+import se.apothictech.euthertime.alarm.WakeStageRole
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -200,6 +202,28 @@ private fun EutherTimeApp() {
         return result.isSuccess
     }
 
+    fun saveWakeSet(
+        wakeSetId: Int?,
+        title: String,
+        repeatDays: Set<Int>,
+        stages: List<WakeStageDraft>,
+    ): Boolean {
+        val result = runCatching {
+            if (wakeSetId == null) {
+                AlarmScheduler.createWakeSet(context, title, repeatDays, stages)
+            } else {
+                AlarmScheduler.replaceWakeSet(context, wakeSetId, title, repeatDays, stages)
+            }
+        }
+        result.onSuccess {
+            revision++
+            Toast.makeText(context, "$title wake set armed", Toast.LENGTH_SHORT).show()
+        }.onFailure {
+            Toast.makeText(context, "Could not save wake set: ${it.message}", Toast.LENGTH_LONG).show()
+        }
+        return result.isSuccess
+    }
+
     val alarms = remember(revision, now / 1_000L) {
         AlarmStore.all(context).filter { it.triggerAtMillis >= now }
     }
@@ -238,8 +262,17 @@ private fun EutherTimeApp() {
                                 TimeTab.ALARMS -> AlarmScreen(
                                     alarms = alarms.filter { it.kind == AlarmKind.ALARM },
                                     onSave = ::saveWakeAlarm,
+                                    onSaveSet = ::saveWakeSet,
                                     onCancel = {
                                         AlarmScheduler.cancel(context, it.id)
+                                        revision++
+                                    },
+                                    onDeleteSet = {
+                                        AlarmScheduler.deleteWakeSet(context, it)
+                                        revision++
+                                    },
+                                    onSkipNext = {
+                                        AlarmScheduler.dismissOccurrence(context, it.id)
                                         revision++
                                     },
                                 )
@@ -421,11 +454,195 @@ private fun ClockScreen(now: Long, next: ScheduledAlarm?) {
     }
 }
 
+private data class EditableWakeStage(
+    val hour: Int,
+    val minute: Int,
+    val role: WakeStageRole,
+)
+
+private fun wakeStageAfter(hour: Int, minute: Int, addedMinutes: Int, role: WakeStageRole): EditableWakeStage {
+    val totalMinutes = (hour * 60 + minute + addedMinutes).mod(24 * 60)
+    return EditableWakeStage(totalMinutes / 60, totalMinutes % 60, role)
+}
+
+@Composable
+private fun WakeSetEditor(
+    title: String,
+    onTitleChange: (String) -> Unit,
+    repeatMask: Int,
+    onRepeatMaskChange: (Int) -> Unit,
+    stages: List<EditableWakeStage>,
+    onStagesChange: (List<EditableWakeStage>) -> Unit,
+    editing: Boolean,
+    onSave: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    val context = LocalContext.current
+    CyberPanel(title = if (editing) "EDIT MORNING LINK" else "MULTI-STAGE MORNING LINK", accent = Amber) {
+        OutlinedTextField(
+            value = title,
+            onValueChange = onTitleChange,
+            label = { Text("SET TITLE", fontFamily = FontFamily.Monospace) },
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Amber,
+                unfocusedBorderColor = Amber.copy(alpha = 0.3f),
+                focusedLabelColor = Amber,
+                unfocusedLabelColor = Ice.copy(alpha = 0.45f),
+                cursorColor = Toxic,
+            ),
+            shape = RoundedCornerShape(3.dp),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(12.dp))
+        Text(
+            if (repeatMask == 0) "TRANSMISSION // ONCE" else "TRANSMISSION // WEEKLY",
+            color = Amber,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 10.sp,
+            letterSpacing = 2.sp,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            listOf("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN").forEachIndexed { index, day ->
+                val bit = 1 shl index
+                ChoiceChip(day, repeatMask and bit != 0) { onRepeatMaskChange(repeatMask xor bit) }
+            }
+        }
+        stages.forEachIndexed { index, stage ->
+            val stageAccent = when (stage.role) {
+                WakeStageRole.GENTLE -> Ice
+                WakeStageRole.PRIMARY -> Toxic
+                WakeStageRole.FINAL -> Magenta
+            }
+            CyberPanel(
+                title = "STAGE ${(index + 1).toString().padStart(2, '0')} // ${stage.role.name}",
+                accent = stageAccent,
+            ) {
+                OutlinedButton(
+                    onClick = {
+                        TimePickerDialog(
+                            context,
+                            { _, hour, minute ->
+                                onStagesChange(stages.toMutableList().apply { this[index] = stage.copy(hour = hour, minute = minute) })
+                            },
+                            stage.hour,
+                            stage.minute,
+                            true,
+                        ).show()
+                    },
+                    border = BorderStroke(1.dp, stageAccent.copy(alpha = 0.6f)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = stageAccent),
+                    shape = RoundedCornerShape(3.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        "%02d:%02d".format(stage.hour, stage.minute),
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 25.sp,
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 7.dp),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    WakeStageRole.entries.forEach { role ->
+                        ChoiceChip(role.name, stage.role == role) {
+                            onStagesChange(stages.toMutableList().apply { this[index] = stage.copy(role = role) })
+                        }
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    SmallProtocolButton("UP", Modifier.weight(1f), enabled = index > 0) {
+                        onStagesChange(stages.toMutableList().apply { add(index - 1, removeAt(index)) })
+                    }
+                    SmallProtocolButton("DOWN", Modifier.weight(1f), enabled = index < stages.lastIndex) {
+                        onStagesChange(stages.toMutableList().apply { add(index + 1, removeAt(index)) })
+                    }
+                    SmallProtocolButton("REMOVE", Modifier.weight(1f), enabled = stages.size > 2) {
+                        onStagesChange(stages.filterIndexed { stageIndex, _ -> stageIndex != index })
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+        SmallProtocolButton("+ ADD SIGNAL STAGE", Modifier.fillMaxWidth()) {
+            val last = stages.last()
+            val updated = stages.map { if (it.role == WakeStageRole.FINAL) it.copy(role = WakeStageRole.PRIMARY) else it }
+            onStagesChange(updated + wakeStageAfter(last.hour, last.minute, 10, WakeStageRole.FINAL))
+        }
+        Spacer(Modifier.height(10.dp))
+        PrimaryProtocolButton(
+            label = if (editing) "UPDATE MORNING LINK" else "ARM MORNING LINK",
+            accent = Amber,
+            enabled = stages.size >= 2 && stages.any { it.role == WakeStageRole.FINAL },
+            onClick = onSave,
+        )
+        Spacer(Modifier.height(7.dp))
+        SmallProtocolButton("CANCEL", Modifier.fillMaxWidth(), onClick = onCancel)
+    }
+}
+
+@Composable
+private fun WakeSetCard(
+    stages: List<ScheduledAlarm>,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    onSkipNext: () -> Unit,
+) {
+    val ordered = stages.sortedBy { it.stageIndex }
+    val first = ordered.first()
+    CyberPanel(title = "MORNING LINK // ${ordered.size} STAGES", accent = Amber) {
+        Text(first.label.uppercase(), color = Ice, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+        Text(
+            repeatSummary(first.repeatDays),
+            color = Amber,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 9.sp,
+        )
+        Spacer(Modifier.height(8.dp))
+        ordered.forEach { stage ->
+            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "${(stage.stageIndex + 1).toString().padStart(2, '0')} ${stage.stageRole.name}",
+                    color = when (stage.stageRole) {
+                        WakeStageRole.GENTLE -> Ice
+                        WakeStageRole.PRIMARY -> Toxic
+                        WakeStageRole.FINAL -> Magenta
+                    },
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 10.sp,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(formatClock(stage.triggerAtMillis), color = Toxic, fontFamily = FontFamily.Monospace)
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 9.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            SmallProtocolButton("SKIP NEXT", Modifier.weight(1f), onClick = onSkipNext)
+            SmallProtocolButton("EDIT", Modifier.weight(1f), onClick = onEdit)
+            SmallProtocolButton("DELETE", Modifier.weight(1f), onClick = onDelete)
+        }
+    }
+    Spacer(Modifier.height(9.dp))
+}
+
 @Composable
 private fun AlarmScreen(
     alarms: List<ScheduledAlarm>,
     onSave: (Int?, Int, Int, String, Set<Int>) -> Boolean,
+    onSaveSet: (Int?, String, Set<Int>, List<WakeStageDraft>) -> Boolean,
     onCancel: (ScheduledAlarm) -> Unit,
+    onDeleteSet: (Int) -> Unit,
+    onSkipNext: (ScheduledAlarm) -> Unit,
 ) {
     val context = LocalContext.current
     val current = LocalDateTime.now()
@@ -436,6 +653,18 @@ private fun AlarmScreen(
     var title by rememberSaveable { mutableStateOf("Wake protocol") }
     var repeatMask by rememberSaveable { mutableIntStateOf(0) }
     var editingId by rememberSaveable { mutableIntStateOf(-1) }
+    var showSetEditor by rememberSaveable { mutableStateOf(false) }
+    var editingSetId by rememberSaveable { mutableIntStateOf(-1) }
+    var setTitle by rememberSaveable { mutableStateOf("Morning link") }
+    var setRepeatMask by rememberSaveable { mutableIntStateOf(0) }
+    var setStages by remember {
+        mutableStateOf(
+            listOf(
+                EditableWakeStage(current.hour, current.minute, WakeStageRole.GENTLE),
+                wakeStageAfter(current.hour, current.minute, 15, WakeStageRole.FINAL),
+            ),
+        )
+    }
 
     fun resetEditor() {
         selectedHour = LocalDateTime.now().hour
@@ -452,6 +681,36 @@ private fun AlarmScreen(
         title = alarm.label
         repeatMask = alarm.repeatDays.fold(0) { mask, day -> mask or (1 shl (day - 1)) }
         editingId = alarm.id
+        scope.launch { scrollState.animateScrollTo(0) }
+    }
+
+    fun resetSetEditor() {
+        val resetNow = LocalDateTime.now()
+        editingSetId = -1
+        setTitle = "Morning link"
+        setRepeatMask = 0
+        setStages = listOf(
+            EditableWakeStage(resetNow.hour, resetNow.minute, WakeStageRole.GENTLE),
+            wakeStageAfter(resetNow.hour, resetNow.minute, 15, WakeStageRole.FINAL),
+        )
+        showSetEditor = false
+    }
+
+    fun editSet(stages: List<ScheduledAlarm>) {
+        val ordered = stages.sortedBy { it.stageIndex }
+        val first = ordered.first()
+        editingSetId = requireNotNull(first.wakeSetId)
+        setTitle = first.label
+        setRepeatMask = first.repeatDays.fold(0) { mask, day -> mask or (1 shl (day - 1)) }
+        setStages = ordered.map { stage ->
+            val moment = Instant.ofEpochMilli(stage.triggerAtMillis).atZone(ZoneId.systemDefault())
+            EditableWakeStage(
+                hour = stage.localHour ?: moment.hour,
+                minute = stage.localMinute ?: moment.minute,
+                role = stage.stageRole,
+            )
+        }
+        showSetEditor = true
         scope.launch { scrollState.animateScrollTo(0) }
     }
 
@@ -528,9 +787,47 @@ private fun AlarmScreen(
                 SmallProtocolButton("CANCEL EDIT", Modifier.fillMaxWidth()) { resetEditor() }
             }
         }
+        Spacer(Modifier.height(12.dp))
+        if (!showSetEditor) {
+            PrimaryProtocolButton("+ BUILD MULTI-STAGE WAKE SET", accent = Amber) {
+                showSetEditor = true
+                scope.launch { scrollState.animateScrollTo(0) }
+            }
+        } else {
+            WakeSetEditor(
+                title = setTitle,
+                onTitleChange = { setTitle = it.take(60) },
+                repeatMask = setRepeatMask,
+                onRepeatMaskChange = { setRepeatMask = it },
+                stages = setStages,
+                onStagesChange = { setStages = it },
+                editing = editingSetId >= 0,
+                onSave = {
+                    val safeTitle = setTitle.trim().ifEmpty { "Morning link" }
+                    val days = (1..7).filterTo(mutableSetOf()) { setRepeatMask and (1 shl (it - 1)) != 0 }
+                    val drafts = setStages.map { WakeStageDraft(it.hour, it.minute, it.role) }
+                    if (onSaveSet(editingSetId.takeIf { it >= 0 }, safeTitle, days, drafts)) resetSetEditor()
+                },
+                onCancel = ::resetSetEditor,
+            )
+        }
         Spacer(Modifier.height(18.dp))
         if (alarms.isEmpty()) EmptyState("NO WAKE SIGNALS ARMED")
-        alarms.forEach { alarm -> ScheduledCard(alarm, System.currentTimeMillis(), onCancel, onEdit = ::edit) }
+        alarms.filter { it.wakeSetId == null }.forEach { alarm ->
+            ScheduledCard(alarm, System.currentTimeMillis(), onCancel, onEdit = ::edit)
+        }
+        alarms.filter { it.wakeSetId != null }
+            .groupBy { it.wakeSetId }
+            .values
+            .sortedBy { stages -> stages.minOf { it.triggerAtMillis } }
+            .forEach { stages ->
+                WakeSetCard(
+                    stages = stages,
+                    onEdit = { editSet(stages) },
+                    onDelete = { onDeleteSet(requireNotNull(stages.first().wakeSetId)) },
+                    onSkipNext = { onSkipNext(stages.minBy { it.triggerAtMillis }) },
+                )
+            }
         InfoStrip("Alarm signals use Android's exact alarm clock channel and survive app closure.")
     }
 }

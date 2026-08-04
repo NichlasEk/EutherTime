@@ -8,10 +8,25 @@ data class ScheduledAlarm(
     val repeatDays: Set<Int> = emptySet(),
     val localHour: Int? = null,
     val localMinute: Int? = null,
+    val wakeSetId: Int? = null,
+    val stageIndex: Int = 0,
+    val stageRole: WakeStageRole = WakeStageRole.PRIMARY,
 ) {
     val repeatsWeekly: Boolean
         get() = kind == AlarmKind.ALARM && repeatDays.isNotEmpty()
 }
+
+enum class WakeStageRole {
+    GENTLE,
+    PRIMARY,
+    FINAL,
+}
+
+data class WakeStageDraft(
+    val hour: Int,
+    val minute: Int,
+    val role: WakeStageRole,
+)
 
 enum class AlarmKind {
     ALARM,

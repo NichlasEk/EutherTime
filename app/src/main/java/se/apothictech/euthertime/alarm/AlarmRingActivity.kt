@@ -46,6 +46,8 @@ class AlarmRingActivity : ComponentActivity() {
             RingScreen(
                 label = label,
                 kind = kind,
+                stageRole = alarm?.stageRole ?: WakeStageRole.PRIMARY,
+                isWakeSetStage = alarm?.wakeSetId != null,
                 onDismiss = { complete(id, false) },
                 onSnooze = { complete(id, true) },
                 onDismissSet = { dismissWakeSet(id) },
@@ -79,6 +81,8 @@ class AlarmRingActivity : ComponentActivity() {
 private fun RingScreen(
     label: String,
     kind: AlarmKind,
+    stageRole: WakeStageRole,
+    isWakeSetStage: Boolean,
     onDismiss: () -> Unit,
     onSnooze: () -> Unit,
     onDismissSet: () -> Unit,
@@ -95,7 +99,7 @@ private fun RingScreen(
                 text = when (kind) {
                     AlarmKind.EGG -> "EGG PROTOCOL"
                     AlarmKind.TIMER -> "COUNTDOWN COMPLETE"
-                    AlarmKind.ALARM -> "WAKE PROTOCOL"
+                    AlarmKind.ALARM -> if (isWakeSetStage) "${stageRole.name} WAKE STAGE" else "WAKE PROTOCOL"
                 },
                 color = amber,
                 fontFamily = FontFamily.Monospace,
@@ -136,7 +140,13 @@ private fun RingScreen(
                     onClick = onDismiss,
                     colors = ButtonDefaults.buttonColors(containerColor = green, contentColor = Color.Black),
                     modifier = Modifier.weight(1f),
-                ) { Text("DISMISS", fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold) }
+                ) {
+                    Text(
+                        if (hasWakeSetCompanions) "NEXT SIGNAL" else "DISMISS",
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
             }
             if (hasWakeSetCompanions) {
                 Button(

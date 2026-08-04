@@ -11,5 +11,6 @@
     <string name="disarm_set">Clear wake set</string>
     <string name="dismiss_set">I’m up · Clear set</string>
     <string name="dismiss">Dismiss</string>
+    <string name="next_signal">Next signal</string>
     <string name="snooze">Snooze</string>
 </resources>

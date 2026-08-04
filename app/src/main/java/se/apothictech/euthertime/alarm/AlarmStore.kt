@@ -43,6 +43,11 @@ object AlarmStore {
                             }.orEmpty(),
                             localHour = item.optInt("localHour").takeIf { item.has("localHour") },
                             localMinute = item.optInt("localMinute").takeIf { item.has("localMinute") },
+                            wakeSetId = item.optInt("wakeSetId").takeIf { item.has("wakeSetId") },
+                            stageIndex = item.optInt("stageIndex", 0),
+                            stageRole = runCatching {
+                                WakeStageRole.valueOf(item.optString("stageRole", WakeStageRole.PRIMARY.name))
+                            }.getOrDefault(WakeStageRole.PRIMARY),
                         ),
                     )
                 }
@@ -77,6 +82,9 @@ object AlarmStore {
                     .apply {
                         alarm.localHour?.let { put("localHour", it) }
                         alarm.localMinute?.let { put("localMinute", it) }
+                        alarm.wakeSetId?.let { put("wakeSetId", it) }
+                        put("stageIndex", alarm.stageIndex)
+                        put("stageRole", alarm.stageRole.name)
                     },
             )
         }

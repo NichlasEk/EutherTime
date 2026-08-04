@@ -24,6 +24,16 @@ class AlarmWakeSetTest {
         assertEquals(listOf(backup), AlarmScheduler.wakeSet(backup, listOf(first, backup)))
     }
 
+    @Test
+    fun explicitWakeSetIncludesItsLateFinalStageButExcludesNearbyStandaloneAlarm() {
+        val gentle = alarm(1, start, AlarmKind.ALARM).copy(wakeSetId = 77, stageIndex = 0, stageRole = WakeStageRole.GENTLE)
+        val unrelated = alarm(2, start + 10 * 60_000L, AlarmKind.ALARM)
+        val final = alarm(3, start + 3 * 60 * 60_000L, AlarmKind.ALARM)
+            .copy(wakeSetId = 77, stageIndex = 1, stageRole = WakeStageRole.FINAL)
+
+        assertEquals(listOf(gentle, final), AlarmScheduler.wakeSet(gentle, listOf(unrelated, final, gentle)))
+    }
+
     private fun alarm(id: Int, triggerAtMillis: Long, kind: AlarmKind) = ScheduledAlarm(
         id = id,
         triggerAtMillis = triggerAtMillis,

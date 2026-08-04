@@ -78,6 +78,72 @@ object AlarmScheduler {
         return updated
     }
 
+    fun createWakeSet(
+        context: Context,
+        title: String,
+        repeatDays: Set<Int>,
+        stages: List<WakeStageDraft>,
+        nowMillis: Long = System.currentTimeMillis(),
+    ): List<ScheduledAlarm> {
+        require(stages.size >= 2) { "A wake set needs at least two stages" }
+        require(stages.any { it.role == WakeStageRole.FINAL }) { "A wake set needs a final stage" }
+        val wakeSetId = AlarmStore.nextId(context)
+        return stages.mapIndexed { index, stage ->
+                val alarm = ScheduledAlarm(
+                    id = AlarmStore.nextId(context),
+                    triggerAtMillis = nextOccurrenceMillis(
+                        stage.hour,
+                        stage.minute,
+                        repeatDays,
+                        nowMillis,
+                    ),
+                    label = title,
+                    kind = AlarmKind.ALARM,
+                    repeatDays = repeatDays,
+                    localHour = stage.hour,
+                    localMinute = stage.minute,
+                    wakeSetId = wakeSetId,
+                    stageIndex = index,
+                    stageRole = stage.role,
+                )
+                schedule(context, alarm)
+                alarm
+            }
+    }
+
+    fun replaceWakeSet(
+        context: Context,
+        wakeSetId: Int,
+        title: String,
+        repeatDays: Set<Int>,
+        stages: List<WakeStageDraft>,
+        nowMillis: Long = System.currentTimeMillis(),
+    ): List<ScheduledAlarm> {
+        require(stages.size >= 2) { "A wake set needs at least two stages" }
+        require(stages.any { it.role == WakeStageRole.FINAL }) { "A wake set needs a final stage" }
+        AlarmStore.all(context).filter { it.wakeSetId == wakeSetId }.forEach { cancel(context, it.id) }
+        return stages.mapIndexed { index, stage ->
+                val alarm = ScheduledAlarm(
+                    id = AlarmStore.nextId(context),
+                    triggerAtMillis = nextOccurrenceMillis(stage.hour, stage.minute, repeatDays, nowMillis),
+                    label = title,
+                    kind = AlarmKind.ALARM,
+                    repeatDays = repeatDays,
+                    localHour = stage.hour,
+                    localMinute = stage.minute,
+                    wakeSetId = wakeSetId,
+                    stageIndex = index,
+                    stageRole = stage.role,
+                )
+                schedule(context, alarm)
+                alarm
+            }
+    }
+
+    fun deleteWakeSet(context: Context, wakeSetId: Int) {
+        AlarmStore.all(context).filter { it.wakeSetId == wakeSetId }.forEach { cancel(context, it.id) }
+    }
+
     fun schedule(context: Context, alarm: ScheduledAlarm) {
         require(alarm.triggerAtMillis > System.currentTimeMillis()) { "Alarm must be in the future" }
         AlarmStore.put(context, alarm)
@@ -207,6 +273,13 @@ object AlarmScheduler {
 
     internal fun wakeSet(anchor: ScheduledAlarm, alarms: List<ScheduledAlarm>): List<ScheduledAlarm> {
         if (anchor.kind != AlarmKind.ALARM) return listOf(anchor)
+        anchor.wakeSetId?.let { explicitSetId ->
+            return alarms.filter {
+                it.wakeSetId == explicitSetId &&
+                    it.triggerAtMillis >= anchor.triggerAtMillis &&
+                    it.triggerAtMillis <= anchor.triggerAtMillis + 24 * 60 * 60_000L
+            }.sortedBy { it.triggerAtMillis }
+        }
         val endMillis = anchor.triggerAtMillis + WAKE_SET_WINDOW_MILLIS
         return alarms.filter {
             it.kind == AlarmKind.ALARM &&
