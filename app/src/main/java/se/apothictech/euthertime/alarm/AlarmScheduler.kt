@@ -9,6 +9,7 @@ import android.content.Intent
 import android.os.Build
 import java.time.Instant
 import java.time.ZoneId
+import se.apothictech.euthertime.widget.AlarmWidgetUpdater
 
 object AlarmScheduler {
     const val REMINDER_LEAD_MILLIS = 30 * 60_000L
@@ -178,6 +179,7 @@ object AlarmScheduler {
             label = "${anchor.label} · awake guard",
             kind = AlarmKind.ALARM,
             stageRole = WakeStageRole.FINAL,
+            wakeSetId = anchor.wakeSetId,
             isAwakeGuardFallback = true,
         )
         schedule(context, fallback)
@@ -193,11 +195,13 @@ object AlarmScheduler {
         require(alarm.triggerAtMillis > System.currentTimeMillis()) { "Alarm must be in the future" }
         AlarmStore.put(context, alarm)
         schedulePlatform(context, alarm)
+        AlarmWidgetUpdater.update(context)
     }
 
     fun cancel(context: Context, id: Int) {
         cancelPlatform(context, id)
         AlarmStore.remove(context, id)
+        AlarmWidgetUpdater.update(context)
     }
 
     private fun cancelPlatform(context: Context, id: Int) {

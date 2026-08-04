@@ -68,6 +68,11 @@
             android:exported="false" />
 
         <receiver
+            android:name=".alarm.MorningJournalReceiver"
+            android:directBootAware="true"
+            android:exported="false" />
+
+        <receiver
             android:name=".alarm.BootReceiver"
             android:directBootAware="true"
             android:exported="false">
@@ -78,6 +83,17 @@
                 <action android:name="android.intent.action.TIME_SET" />
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
             </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".widget.EutherTimeWidgetReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/euthertime_widget_info" />
         </receiver>
 
         <service

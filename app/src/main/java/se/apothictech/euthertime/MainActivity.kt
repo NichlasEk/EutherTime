@@ -84,6 +84,8 @@ import se.apothictech.euthertime.alarm.AlarmStore
 import se.apothictech.euthertime.alarm.ScheduledAlarm
 import se.apothictech.euthertime.alarm.WakeStageDraft
 import se.apothictech.euthertime.alarm.WakeStageRole
+import se.apothictech.euthertime.alarm.WakeJournalStore
+import se.apothictech.euthertime.alarm.WakeRating
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -697,6 +699,44 @@ private fun AlarmIntegrityPanel(alarms: List<ScheduledAlarm>, onRunTest: () -> U
 }
 
 @Composable
+private fun WakeJournalPanel() {
+    val context = LocalContext.current
+    val entries = remember { WakeJournalStore.entries(context).takeLast(30) }
+    CyberPanel(title = "MORNING TELEMETRY // LOCAL ONLY", accent = Ice) {
+        if (entries.isEmpty()) {
+            Text("NO MORNING SAMPLES", color = Ice.copy(alpha = 0.48f), fontFamily = FontFamily.Monospace)
+        } else {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                WakeRating.entries.forEach { rating ->
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            entries.count { it.rating == rating }.toString().padStart(2, '0'),
+                            color = when (rating) {
+                                WakeRating.DEAD -> Magenta
+                                WakeRating.OKAY -> Amber
+                                WakeRating.SHARP -> Toxic
+                            },
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(rating.name, color = Ice.copy(alpha = 0.55f), fontFamily = FontFamily.Monospace, fontSize = 9.sp)
+                    }
+                }
+            }
+            Text(
+                "LAST ${entries.size} CHECK-INS · STORED ON DEVICE",
+                color = Ice.copy(alpha = 0.35f),
+                fontFamily = FontFamily.Monospace,
+                fontSize = 8.sp,
+                modifier = Modifier.padding(top = 9.dp),
+            )
+        }
+    }
+    Spacer(Modifier.height(9.dp))
+}
+
+@Composable
 private fun AlarmScreen(
     alarms: List<ScheduledAlarm>,
     onSave: (Int?, Int, Int, String, Set<Int>) -> Boolean,
@@ -898,6 +938,7 @@ private fun AlarmScreen(
                 )
             }
         AlarmIntegrityPanel(alarms, onRunIntegrityTest)
+        WakeJournalPanel()
         InfoStrip("Alarm signals use Android's exact alarm clock channel and survive app closure.")
     }
 }

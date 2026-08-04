@@ -16,4 +16,7 @@
     <string name="awake_check_title">AWAKE GUARD · CONFIRM STATUS</string>
     <string name="awake_check_message">Confirm you are awake or the final safety signal will fire.</string>
     <string name="confirm_awake">I’m awake</string>
+    <string name="wake_journal_title">MORNING TELEMETRY</string>
+    <string name="wake_journal_message">How did %1$s feel?</string>
+    <string name="widget_description">Next EutherTime alarm and one-tap skip control</string>
 </resources>

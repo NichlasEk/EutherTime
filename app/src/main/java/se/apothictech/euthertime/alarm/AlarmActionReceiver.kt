@@ -18,8 +18,20 @@ class AlarmActionReceiver : BroadcastReceiver() {
             ACTION_CLEAR_WAKE_SET_WITH_GUARD -> {
                 context.stopService(Intent(context, AlarmSoundService::class.java))
                 AlarmScheduler.clearWakeSetWithAwakeGuard(context, id)
+                if (alarm != null && !alarm.awakeGuardEnabled) {
+                    AlarmNotifications.showMorningJournal(context, alarm.wakeSetId, alarm.label)
+                }
             }
-            ACTION_CONFIRM_AWAKE -> AlarmScheduler.confirmAwake(context, id)
+            ACTION_CONFIRM_AWAKE -> {
+                AlarmScheduler.confirmAwake(context, id)
+                if (alarm != null) {
+                    AlarmNotifications.showMorningJournal(
+                        context,
+                        alarm.wakeSetId,
+                        alarm.label.removeSuffix(" · awake guard"),
+                    )
+                }
+            }
             ACTION_SNOOZE -> {
                 context.stopService(Intent(context, AlarmSoundService::class.java))
                 if (alarm != null) AlarmScheduler.snooze(context, alarm)

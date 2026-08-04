@@ -21,6 +21,7 @@ object AlarmNotifications {
     fun notificationId(alarmId: Int): Int = 20_000 + (alarmId % 10_000)
     fun reminderNotificationId(alarmId: Int): Int = 40_000 + (alarmId % 10_000)
     fun awakeCheckNotificationId(alarmId: Int): Int = 50_000 + (alarmId % 10_000)
+    fun morningJournalNotificationId(wakeSetId: Int): Int = 60_000 + (wakeSetId % 10_000)
 
     fun ensureChannel(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
@@ -134,6 +135,45 @@ object AlarmNotifications {
         context.getSystemService(NotificationManager::class.java)
             .cancel(awakeCheckNotificationId(fallbackAlarmId))
     }
+
+    @SuppressLint("MissingPermission")
+    fun showMorningJournal(context: Context, wakeSetId: Int?, title: String) {
+        ensureReminderChannel(context)
+        val notification = NotificationCompat.Builder(context, REMINDER_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_euthertime)
+            .setColor(Color.rgb(116, 255, 99))
+            .setContentTitle(context.getString(R.string.wake_journal_title))
+            .setContentText(context.getString(R.string.wake_journal_message, title))
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setSilent(true)
+            .setAutoCancel(true)
+            .apply {
+                WakeRating.entries.forEach { rating ->
+                    addAction(0, rating.name, journalIntent(context, wakeSetId, title, rating))
+                }
+            }
+            .build()
+        context.getSystemService(NotificationManager::class.java)
+            .notify(morningJournalNotificationId(wakeSetId ?: 0), notification)
+    }
+
+    fun cancelMorningJournal(context: Context, wakeSetId: Int) {
+        context.getSystemService(NotificationManager::class.java)
+            .cancel(morningJournalNotificationId(wakeSetId))
+    }
+
+    private fun journalIntent(context: Context, wakeSetId: Int?, title: String, rating: WakeRating): PendingIntent =
+        PendingIntent.getBroadcast(
+            context,
+            (wakeSetId ?: 0) + rating.name.hashCode(),
+            Intent(context, MorningJournalReceiver::class.java)
+                .putExtra(MorningJournalReceiver.EXTRA_WAKE_SET_ID, wakeSetId ?: -1)
+                .putExtra(MorningJournalReceiver.EXTRA_TITLE, title)
+                .putExtra(MorningJournalReceiver.EXTRA_RATING, rating.name),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
 
     fun build(context: Context, alarm: ScheduledAlarm): Notification {
         ensureChannel(context)
