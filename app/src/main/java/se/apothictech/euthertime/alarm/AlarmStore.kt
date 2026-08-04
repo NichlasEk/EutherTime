@@ -48,6 +48,8 @@ object AlarmStore {
                             stageRole = runCatching {
                                 WakeStageRole.valueOf(item.optString("stageRole", WakeStageRole.PRIMARY.name))
                             }.getOrDefault(WakeStageRole.PRIMARY),
+                            awakeGuardEnabled = item.optBoolean("awakeGuardEnabled", false),
+                            isAwakeGuardFallback = item.optBoolean("isAwakeGuardFallback", false),
                         ),
                     )
                 }
@@ -85,6 +87,8 @@ object AlarmStore {
                         alarm.wakeSetId?.let { put("wakeSetId", it) }
                         put("stageIndex", alarm.stageIndex)
                         put("stageRole", alarm.stageRole.name)
+                        put("awakeGuardEnabled", alarm.awakeGuardEnabled)
+                        put("isAwakeGuardFallback", alarm.isAwakeGuardFallback)
                     },
             )
         }

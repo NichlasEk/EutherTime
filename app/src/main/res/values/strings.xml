@@ -13,4 +13,7 @@
     <string name="dismiss">Dismiss</string>
     <string name="next_signal">Next signal</string>
     <string name="snooze">Snooze</string>
+    <string name="awake_check_title">AWAKE GUARD · CONFIRM STATUS</string>
+    <string name="awake_check_message">Confirm you are awake or the final safety signal will fire.</string>
+    <string name="confirm_awake">I’m awake</string>
 </resources>

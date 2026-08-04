@@ -36,6 +36,16 @@ class AlarmReminderSchedulingTest {
         assertNull(AlarmScheduler.reminderTriggerAtMillis(scheduled(AlarmKind.ALARM, now + 500L), now))
     }
 
+    @Test
+    fun awakeGuardFallbackDoesNotCreateAnotherPreAlarmReminder() {
+        assertNull(
+            AlarmScheduler.reminderTriggerAtMillis(
+                scheduled(AlarmKind.ALARM, now + 8 * 60_000L).copy(isAwakeGuardFallback = true),
+                now,
+            ),
+        )
+    }
+
     private fun scheduled(kind: AlarmKind, triggerAtMillis: Long) = ScheduledAlarm(
         id = 1000,
         triggerAtMillis = triggerAtMillis,

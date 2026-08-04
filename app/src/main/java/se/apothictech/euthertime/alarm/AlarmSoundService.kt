@@ -35,12 +35,13 @@ class AlarmSoundService : Service() {
         )
 
         startForeground(AlarmNotifications.notificationId(alarm.id), AlarmNotifications.build(this, alarm))
-        beginSignal()
+        beginSignal(alarm.stageRole)
         return START_NOT_STICKY
     }
 
-    private fun beginSignal() {
+    private fun beginSignal(role: WakeStageRole) {
         if (mediaPlayer?.isPlaying == true) return
+        val profile = AlarmSignalProfiles.forRole(role)
 
         val audioManager = getSystemService(AudioManager::class.java)
         audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
@@ -66,6 +67,7 @@ class AlarmSoundService : Service() {
                 )
                 setDataSource(this@AlarmSoundService, uri)
                 isLooping = true
+                setVolume(profile.gain, profile.gain)
                 prepare()
                 start()
             }
@@ -73,7 +75,7 @@ class AlarmSoundService : Service() {
 
         vibrator = getSystemService(Vibrator::class.java)
         vibrator?.vibrate(
-            VibrationEffect.createWaveform(longArrayOf(0, 550, 300, 550, 900), 0),
+            VibrationEffect.createWaveform(profile.vibrationPattern, 0),
         )
     }
 

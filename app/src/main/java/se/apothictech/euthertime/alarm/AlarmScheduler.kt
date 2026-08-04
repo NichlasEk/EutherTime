@@ -13,6 +13,8 @@ import java.time.ZoneId
 object AlarmScheduler {
     const val REMINDER_LEAD_MILLIS = 30 * 60_000L
     const val WAKE_SET_WINDOW_MILLIS = 2 * 60 * 60_000L
+    const val AWAKE_CHECK_DELAY_MILLIS = 5 * 60_000L
+    const val AWAKE_GUARD_FALLBACK_DELAY_MILLIS = 8 * 60_000L
     private const val MINIMUM_REMINDER_DELAY_MILLIS = 1_000L
     const val EXTRA_ALARM_ID = "alarm_id"
     const val EXTRA_LABEL = "alarm_label"
@@ -83,6 +85,7 @@ object AlarmScheduler {
         title: String,
         repeatDays: Set<Int>,
         stages: List<WakeStageDraft>,
+        awakeGuardEnabled: Boolean,
         nowMillis: Long = System.currentTimeMillis(),
     ): List<ScheduledAlarm> {
         require(stages.size >= 2) { "A wake set needs at least two stages" }
@@ -105,6 +108,7 @@ object AlarmScheduler {
                     wakeSetId = wakeSetId,
                     stageIndex = index,
                     stageRole = stage.role,
+                    awakeGuardEnabled = awakeGuardEnabled,
                 )
                 schedule(context, alarm)
                 alarm
@@ -117,6 +121,7 @@ object AlarmScheduler {
         title: String,
         repeatDays: Set<Int>,
         stages: List<WakeStageDraft>,
+        awakeGuardEnabled: Boolean,
         nowMillis: Long = System.currentTimeMillis(),
     ): List<ScheduledAlarm> {
         require(stages.size >= 2) { "A wake set needs at least two stages" }
@@ -134,6 +139,7 @@ object AlarmScheduler {
                     wakeSetId = wakeSetId,
                     stageIndex = index,
                     stageRole = stage.role,
+                    awakeGuardEnabled = awakeGuardEnabled,
                 )
                 schedule(context, alarm)
                 alarm
@@ -142,6 +148,29 @@ object AlarmScheduler {
 
     fun deleteWakeSet(context: Context, wakeSetId: Int) {
         AlarmStore.all(context).filter { it.wakeSetId == wakeSetId }.forEach { cancel(context, it.id) }
+    }
+
+    fun clearWakeSetWithAwakeGuard(context: Context, anchorId: Int) {
+        val anchor = AlarmStore.get(context, anchorId) ?: return
+        val shouldArmGuard = anchor.wakeSetId != null && anchor.awakeGuardEnabled
+        cancelWakeSet(context, anchorId)
+        if (!shouldArmGuard) return
+
+        val fallback = ScheduledAlarm(
+            id = AlarmStore.nextId(context),
+            triggerAtMillis = System.currentTimeMillis() + AWAKE_GUARD_FALLBACK_DELAY_MILLIS,
+            label = "${anchor.label} · awake guard",
+            kind = AlarmKind.ALARM,
+            stageRole = WakeStageRole.FINAL,
+            isAwakeGuardFallback = true,
+        )
+        schedule(context, fallback)
+        scheduleAwakeCheck(context, fallback)
+    }
+
+    fun confirmAwake(context: Context, fallbackAlarmId: Int) {
+        cancel(context, fallbackAlarmId)
+        AlarmNotifications.cancelAwakeCheck(context, fallbackAlarmId)
     }
 
     fun schedule(context: Context, alarm: ScheduledAlarm) {
@@ -159,6 +188,7 @@ object AlarmScheduler {
         val manager = context.getSystemService(AlarmManager::class.java)
         manager.cancel(triggerIntent(context, id))
         manager.cancel(reminderIntent(context, id))
+        manager.cancel(awakeCheckIntent(context, id))
         context.getSystemService(NotificationManager::class.java)
             .cancel(AlarmNotifications.reminderNotificationId(id))
     }
@@ -212,8 +242,10 @@ object AlarmScheduler {
                 )
                 AlarmStore.put(context, rescheduled)
                 schedulePlatform(context, rescheduled)
+                if (rescheduled.isAwakeGuardFallback) scheduleAwakeCheck(context, rescheduled)
             } else if (alarm.triggerAtMillis > now) {
                 schedulePlatform(context, alarm)
+                if (alarm.isAwakeGuardFallback) scheduleAwakeCheck(context, alarm)
             } else {
                 AlarmStore.remove(context, alarm.id)
             }
@@ -262,8 +294,31 @@ object AlarmScheduler {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
+    private fun awakeCheckIntent(context: Context, id: Int): PendingIntent =
+        PendingIntent.getBroadcast(
+            context,
+            id,
+            Intent(context, AwakeCheckReceiver::class.java).putExtra(EXTRA_ALARM_ID, id),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+    @SuppressLint("MissingPermission")
+    private fun scheduleAwakeCheck(context: Context, fallback: ScheduledAlarm) {
+        val now = System.currentTimeMillis()
+        val checkAtMillis = maxOf(
+            fallback.triggerAtMillis - (AWAKE_GUARD_FALLBACK_DELAY_MILLIS - AWAKE_CHECK_DELAY_MILLIS),
+            now + MINIMUM_REMINDER_DELAY_MILLIS,
+        )
+        if (checkAtMillis >= fallback.triggerAtMillis) return
+        context.getSystemService(AlarmManager::class.java).setExactAndAllowWhileIdle(
+            AlarmManager.RTC_WAKEUP,
+            checkAtMillis,
+            awakeCheckIntent(context, fallback.id),
+        )
+    }
+
     internal fun reminderTriggerAtMillis(alarm: ScheduledAlarm, nowMillis: Long): Long? {
-        if (alarm.kind != AlarmKind.ALARM) return null
+        if (alarm.kind != AlarmKind.ALARM || alarm.isAwakeGuardFallback) return null
         val reminderAtMillis = maxOf(
             alarm.triggerAtMillis - REMINDER_LEAD_MILLIS,
             nowMillis + MINIMUM_REMINDER_DELAY_MILLIS,

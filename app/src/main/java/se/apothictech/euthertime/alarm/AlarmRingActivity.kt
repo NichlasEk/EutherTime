@@ -69,7 +69,7 @@ class AlarmRingActivity : ComponentActivity() {
     private fun dismissWakeSet(id: Int) {
         sendBroadcast(
             Intent(this, AlarmActionReceiver::class.java)
-                .setAction(AlarmActionReceiver.ACTION_CANCEL_WAKE_SET)
+                .setAction(AlarmActionReceiver.ACTION_CLEAR_WAKE_SET_WITH_GUARD)
                 .putExtra(AlarmScheduler.EXTRA_ALARM_ID, id),
         )
         setResult(Activity.RESULT_OK)

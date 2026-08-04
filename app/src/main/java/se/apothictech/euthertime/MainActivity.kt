@@ -207,12 +207,13 @@ private fun EutherTimeApp() {
         title: String,
         repeatDays: Set<Int>,
         stages: List<WakeStageDraft>,
+        awakeGuardEnabled: Boolean,
     ): Boolean {
         val result = runCatching {
             if (wakeSetId == null) {
-                AlarmScheduler.createWakeSet(context, title, repeatDays, stages)
+                AlarmScheduler.createWakeSet(context, title, repeatDays, stages, awakeGuardEnabled)
             } else {
-                AlarmScheduler.replaceWakeSet(context, wakeSetId, title, repeatDays, stages)
+                AlarmScheduler.replaceWakeSet(context, wakeSetId, title, repeatDays, stages, awakeGuardEnabled)
             }
         }
         result.onSuccess {
@@ -473,6 +474,8 @@ private fun WakeSetEditor(
     onRepeatMaskChange: (Int) -> Unit,
     stages: List<EditableWakeStage>,
     onStagesChange: (List<EditableWakeStage>) -> Unit,
+    awakeGuardEnabled: Boolean,
+    onAwakeGuardChange: (Boolean) -> Unit,
     editing: Boolean,
     onSave: () -> Unit,
     onCancel: () -> Unit,
@@ -578,6 +581,12 @@ private fun WakeSetEditor(
             onStagesChange(updated + wakeStageAfter(last.hour, last.minute, 10, WakeStageRole.FINAL))
         }
         Spacer(Modifier.height(10.dp))
+        ChoiceRow(
+            title = if (awakeGuardEnabled) "AWAKE GUARD // ARMED" else "AWAKE GUARD // OFFLINE",
+            detail = "Five-minute check; ignored check triggers the final safety signal",
+            selected = awakeGuardEnabled,
+        ) { onAwakeGuardChange(!awakeGuardEnabled) }
+        Spacer(Modifier.height(10.dp))
         PrimaryProtocolButton(
             label = if (editing) "UPDATE MORNING LINK" else "ARM MORNING LINK",
             accent = Amber,
@@ -606,6 +615,14 @@ private fun WakeSetCard(
             fontFamily = FontFamily.Monospace,
             fontSize = 9.sp,
         )
+        if (first.awakeGuardEnabled) {
+            Text(
+                "AWAKE GUARD // ARMED",
+                color = Toxic,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 9.sp,
+            )
+        }
         Spacer(Modifier.height(8.dp))
         ordered.forEach { stage ->
             Row(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -639,7 +656,7 @@ private fun WakeSetCard(
 private fun AlarmScreen(
     alarms: List<ScheduledAlarm>,
     onSave: (Int?, Int, Int, String, Set<Int>) -> Boolean,
-    onSaveSet: (Int?, String, Set<Int>, List<WakeStageDraft>) -> Boolean,
+    onSaveSet: (Int?, String, Set<Int>, List<WakeStageDraft>, Boolean) -> Boolean,
     onCancel: (ScheduledAlarm) -> Unit,
     onDeleteSet: (Int) -> Unit,
     onSkipNext: (ScheduledAlarm) -> Unit,
@@ -657,6 +674,7 @@ private fun AlarmScreen(
     var editingSetId by rememberSaveable { mutableIntStateOf(-1) }
     var setTitle by rememberSaveable { mutableStateOf("Morning link") }
     var setRepeatMask by rememberSaveable { mutableIntStateOf(0) }
+    var awakeGuardEnabled by rememberSaveable { mutableStateOf(false) }
     var setStages by remember {
         mutableStateOf(
             listOf(
@@ -689,6 +707,7 @@ private fun AlarmScreen(
         editingSetId = -1
         setTitle = "Morning link"
         setRepeatMask = 0
+        awakeGuardEnabled = false
         setStages = listOf(
             EditableWakeStage(resetNow.hour, resetNow.minute, WakeStageRole.GENTLE),
             wakeStageAfter(resetNow.hour, resetNow.minute, 15, WakeStageRole.FINAL),
@@ -702,6 +721,7 @@ private fun AlarmScreen(
         editingSetId = requireNotNull(first.wakeSetId)
         setTitle = first.label
         setRepeatMask = first.repeatDays.fold(0) { mask, day -> mask or (1 shl (day - 1)) }
+        awakeGuardEnabled = first.awakeGuardEnabled
         setStages = ordered.map { stage ->
             val moment = Instant.ofEpochMilli(stage.triggerAtMillis).atZone(ZoneId.systemDefault())
             EditableWakeStage(
@@ -801,12 +821,16 @@ private fun AlarmScreen(
                 onRepeatMaskChange = { setRepeatMask = it },
                 stages = setStages,
                 onStagesChange = { setStages = it },
+                awakeGuardEnabled = awakeGuardEnabled,
+                onAwakeGuardChange = { awakeGuardEnabled = it },
                 editing = editingSetId >= 0,
                 onSave = {
                     val safeTitle = setTitle.trim().ifEmpty { "Morning link" }
                     val days = (1..7).filterTo(mutableSetOf()) { setRepeatMask and (1 shl (it - 1)) != 0 }
                     val drafts = setStages.map { WakeStageDraft(it.hour, it.minute, it.role) }
-                    if (onSaveSet(editingSetId.takeIf { it >= 0 }, safeTitle, days, drafts)) resetSetEditor()
+                    if (onSaveSet(editingSetId.takeIf { it >= 0 }, safeTitle, days, drafts, awakeGuardEnabled)) {
+                        resetSetEditor()
+                    }
                 },
                 onCancel = ::resetSetEditor,
             )

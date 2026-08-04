@@ -15,6 +15,11 @@ class AlarmActionReceiver : BroadcastReceiver() {
                 context.stopService(Intent(context, AlarmSoundService::class.java))
                 AlarmScheduler.cancelWakeSet(context, id)
             }
+            ACTION_CLEAR_WAKE_SET_WITH_GUARD -> {
+                context.stopService(Intent(context, AlarmSoundService::class.java))
+                AlarmScheduler.clearWakeSetWithAwakeGuard(context, id)
+            }
+            ACTION_CONFIRM_AWAKE -> AlarmScheduler.confirmAwake(context, id)
             ACTION_SNOOZE -> {
                 context.stopService(Intent(context, AlarmSoundService::class.java))
                 if (alarm != null) AlarmScheduler.snooze(context, alarm)
@@ -31,5 +36,7 @@ class AlarmActionReceiver : BroadcastReceiver() {
         const val ACTION_SNOOZE = "se.apothictech.euthertime.SNOOZE"
         const val ACTION_CANCEL_UPCOMING = "se.apothictech.euthertime.CANCEL_UPCOMING"
         const val ACTION_CANCEL_WAKE_SET = "se.apothictech.euthertime.CANCEL_WAKE_SET"
+        const val ACTION_CLEAR_WAKE_SET_WITH_GUARD = "se.apothictech.euthertime.CLEAR_WAKE_SET_WITH_GUARD"
+        const val ACTION_CONFIRM_AWAKE = "se.apothictech.euthertime.CONFIRM_AWAKE"
     }
 }

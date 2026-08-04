@@ -10,6 +10,7 @@ class AlarmReceiver : BroadcastReceiver() {
         val id = intent.getIntExtra(AlarmScheduler.EXTRA_ALARM_ID, -1)
         val alarm = AlarmStore.get(context, id) ?: return
         AlarmNotifications.cancelReminder(context, alarm.id)
+        if (alarm.isAwakeGuardFallback) AlarmNotifications.cancelAwakeCheck(context, alarm.id)
         ContextCompat.startForegroundService(
             context,
             Intent(context, AlarmSoundService::class.java)

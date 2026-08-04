@@ -20,6 +20,7 @@ object AlarmNotifications {
 
     fun notificationId(alarmId: Int): Int = 20_000 + (alarmId % 10_000)
     fun reminderNotificationId(alarmId: Int): Int = 40_000 + (alarmId % 10_000)
+    fun awakeCheckNotificationId(alarmId: Int): Int = 50_000 + (alarmId % 10_000)
 
     fun ensureChannel(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
@@ -106,6 +107,34 @@ object AlarmNotifications {
             .cancel(reminderNotificationId(alarmId))
     }
 
+    @SuppressLint("MissingPermission")
+    fun showAwakeCheck(context: Context, fallback: ScheduledAlarm) {
+        ensureReminderChannel(context)
+        val confirmIntent = actionIntent(context, fallback.id, AlarmActionReceiver.ACTION_CONFIRM_AWAKE)
+        val notification = NotificationCompat.Builder(context, REMINDER_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_euthertime)
+            .setColor(Color.rgb(255, 176, 0))
+            .setContentTitle(context.getString(R.string.awake_check_title))
+            .setContentText(context.getString(R.string.awake_check_message))
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setSilent(true)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .addAction(0, context.getString(R.string.confirm_awake), confirmIntent)
+            .build()
+        runCatching {
+            context.getSystemService(NotificationManager::class.java)
+                .notify(awakeCheckNotificationId(fallback.id), notification)
+        }
+    }
+
+    fun cancelAwakeCheck(context: Context, fallbackAlarmId: Int) {
+        context.getSystemService(NotificationManager::class.java)
+            .cancel(awakeCheckNotificationId(fallbackAlarmId))
+    }
+
     fun build(context: Context, alarm: ScheduledAlarm): Notification {
         ensureChannel(context)
         val ringIntent = Intent(context, AlarmRingActivity::class.java)
@@ -120,7 +149,7 @@ object AlarmNotifications {
         )
         val dismissIntent = actionIntent(context, alarm.id, AlarmActionReceiver.ACTION_DISMISS)
         val snoozeIntent = actionIntent(context, alarm.id, AlarmActionReceiver.ACTION_SNOOZE)
-        val dismissSetIntent = actionIntent(context, alarm.id, AlarmActionReceiver.ACTION_CANCEL_WAKE_SET)
+        val dismissSetIntent = actionIntent(context, alarm.id, AlarmActionReceiver.ACTION_CLEAR_WAKE_SET_WITH_GUARD)
         val hasWakeSetCompanions = AlarmScheduler.hasWakeSetCompanions(context, alarm)
 
         return NotificationCompat.Builder(context, CHANNEL_ID)
