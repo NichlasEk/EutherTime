@@ -13,6 +13,7 @@ data class ScheduledAlarm(
     val stageRole: WakeStageRole = WakeStageRole.PRIMARY,
     val awakeGuardEnabled: Boolean = false,
     val isAwakeGuardFallback: Boolean = false,
+    val isIntegrityTest: Boolean = false,
 ) {
     val repeatsWeekly: Boolean
         get() = kind == AlarmKind.ALARM && repeatDays.isNotEmpty()

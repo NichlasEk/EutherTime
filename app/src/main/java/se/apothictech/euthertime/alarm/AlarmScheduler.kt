@@ -57,6 +57,22 @@ object AlarmScheduler {
         return alarm
     }
 
+    fun createIntegrityTest(
+        context: Context,
+        nowMillis: Long = System.currentTimeMillis(),
+    ): ScheduledAlarm {
+        val alarm = ScheduledAlarm(
+            id = AlarmStore.nextId(context),
+            triggerAtMillis = nowMillis + 60_000L,
+            label = "Integrity test",
+            kind = AlarmKind.ALARM,
+            stageRole = WakeStageRole.PRIMARY,
+            isIntegrityTest = true,
+        )
+        schedule(context, alarm)
+        return alarm
+    }
+
     fun updateWakeAlarm(
         context: Context,
         id: Int,
@@ -318,7 +334,7 @@ object AlarmScheduler {
     }
 
     internal fun reminderTriggerAtMillis(alarm: ScheduledAlarm, nowMillis: Long): Long? {
-        if (alarm.kind != AlarmKind.ALARM || alarm.isAwakeGuardFallback) return null
+        if (alarm.kind != AlarmKind.ALARM || alarm.isAwakeGuardFallback || alarm.isIntegrityTest) return null
         val reminderAtMillis = maxOf(
             alarm.triggerAtMillis - REMINDER_LEAD_MILLIS,
             nowMillis + MINIMUM_REMINDER_DELAY_MILLIS,

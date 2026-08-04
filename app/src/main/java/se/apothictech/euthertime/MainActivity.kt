@@ -78,6 +78,7 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import se.apothictech.euthertime.alarm.AlarmKind
+import se.apothictech.euthertime.alarm.AlarmIntegrityInspector
 import se.apothictech.euthertime.alarm.AlarmScheduler
 import se.apothictech.euthertime.alarm.AlarmStore
 import se.apothictech.euthertime.alarm.ScheduledAlarm
@@ -225,6 +226,17 @@ private fun EutherTimeApp() {
         return result.isSuccess
     }
 
+    fun runIntegrityTest() {
+        runCatching { AlarmScheduler.createIntegrityTest(context) }
+            .onSuccess {
+                revision++
+                Toast.makeText(context, "Integrity signal armed for 60 seconds", Toast.LENGTH_LONG).show()
+            }
+            .onFailure {
+                Toast.makeText(context, "Integrity test failed: ${it.message}", Toast.LENGTH_LONG).show()
+            }
+    }
+
     val alarms = remember(revision, now / 1_000L) {
         AlarmStore.all(context).filter { it.triggerAtMillis >= now }
     }
@@ -276,6 +288,7 @@ private fun EutherTimeApp() {
                                         AlarmScheduler.dismissOccurrence(context, it.id)
                                         revision++
                                     },
+                                    onRunIntegrityTest = ::runIntegrityTest,
                                 )
                                 TimeTab.TIMER -> TimerScreen(
                                     now = now,
@@ -653,6 +666,37 @@ private fun WakeSetCard(
 }
 
 @Composable
+private fun AlarmIntegrityPanel(alarms: List<ScheduledAlarm>, onRunTest: () -> Unit) {
+    val context = LocalContext.current
+    val stateKey = alarms.map { it.id to it.triggerAtMillis }
+    val checks = remember(stateKey) { AlarmIntegrityInspector.inspect(context) }
+    val allNominal = checks.all { it.nominal }
+    CyberPanel(title = "ALARM INTEGRITY // ${if (allNominal) "NOMINAL" else "ATTENTION"}", accent = if (allNominal) Toxic else Magenta) {
+        checks.forEach { check ->
+            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (check.nominal) "●" else "×",
+                    color = if (check.nominal) Toxic else Magenta,
+                    modifier = Modifier.padding(end = 9.dp),
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(check.label, color = Ice, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                    Text(
+                        check.detail,
+                        color = Ice.copy(alpha = 0.48f),
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 9.sp,
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(9.dp))
+        PrimaryProtocolButton("TEST IN 60 SECONDS", accent = if (allNominal) Toxic else Amber, onClick = onRunTest)
+    }
+    Spacer(Modifier.height(9.dp))
+}
+
+@Composable
 private fun AlarmScreen(
     alarms: List<ScheduledAlarm>,
     onSave: (Int?, Int, Int, String, Set<Int>) -> Boolean,
@@ -660,6 +704,7 @@ private fun AlarmScreen(
     onCancel: (ScheduledAlarm) -> Unit,
     onDeleteSet: (Int) -> Unit,
     onSkipNext: (ScheduledAlarm) -> Unit,
+    onRunIntegrityTest: () -> Unit,
 ) {
     val context = LocalContext.current
     val current = LocalDateTime.now()
@@ -852,6 +897,7 @@ private fun AlarmScreen(
                     onSkipNext = { onSkipNext(stages.minBy { it.triggerAtMillis }) },
                 )
             }
+        AlarmIntegrityPanel(alarms, onRunIntegrityTest)
         InfoStrip("Alarm signals use Android's exact alarm clock channel and survive app closure.")
     }
 }

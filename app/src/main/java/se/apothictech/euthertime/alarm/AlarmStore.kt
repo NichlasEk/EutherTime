@@ -50,6 +50,7 @@ object AlarmStore {
                             }.getOrDefault(WakeStageRole.PRIMARY),
                             awakeGuardEnabled = item.optBoolean("awakeGuardEnabled", false),
                             isAwakeGuardFallback = item.optBoolean("isAwakeGuardFallback", false),
+                            isIntegrityTest = item.optBoolean("isIntegrityTest", false),
                         ),
                     )
                 }
@@ -89,6 +90,7 @@ object AlarmStore {
                         put("stageRole", alarm.stageRole.name)
                         put("awakeGuardEnabled", alarm.awakeGuardEnabled)
                         put("isAwakeGuardFallback", alarm.isAwakeGuardFallback)
+                        put("isIntegrityTest", alarm.isIntegrityTest)
                     },
             )
         }
