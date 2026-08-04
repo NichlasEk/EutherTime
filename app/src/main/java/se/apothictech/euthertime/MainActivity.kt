@@ -57,6 +57,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -75,6 +76,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import se.apothictech.euthertime.alarm.AlarmKind
 import se.apothictech.euthertime.alarm.AlarmScheduler
 import se.apothictech.euthertime.alarm.AlarmStore
@@ -149,7 +151,7 @@ private fun EutherTimeApp() {
     }
 
     LaunchedEffect(Unit) {
-        AlarmStore.removeExpired(context)
+        runCatching { AlarmScheduler.rescheduleAll(context) }
         while (true) {
             now = System.currentTimeMillis()
             delay(250)
@@ -172,6 +174,30 @@ private fun EutherTimeApp() {
             .onFailure {
                 Toast.makeText(context, "Could not arm signal: ${it.message}", Toast.LENGTH_LONG).show()
             }
+    }
+
+    fun saveWakeAlarm(id: Int?, hour: Int, minute: Int, label: String, repeatDays: Set<Int>): Boolean {
+        val needsNotificationPermission = Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        if (needsNotificationPermission) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            requestFullScreenAlarmAccess()
+        }
+        val result = runCatching {
+            if (id == null) {
+                AlarmScheduler.createWakeAlarm(context, hour, minute, label, repeatDays)
+            } else {
+                requireNotNull(AlarmScheduler.updateWakeAlarm(context, id, hour, minute, label, repeatDays))
+            }
+        }
+        result.onSuccess {
+            revision++
+            Toast.makeText(context, "$label ${if (id == null) "armed" else "updated"}", Toast.LENGTH_SHORT).show()
+        }.onFailure {
+            Toast.makeText(context, "Could not save alarm: ${it.message}", Toast.LENGTH_LONG).show()
+        }
+        return result.isSuccess
     }
 
     val alarms = remember(revision, now / 1_000L) {
@@ -211,7 +237,7 @@ private fun EutherTimeApp() {
                                 TimeTab.CLOCK -> ClockScreen(now, alarms.firstOrNull())
                                 TimeTab.ALARMS -> AlarmScreen(
                                     alarms = alarms.filter { it.kind == AlarmKind.ALARM },
-                                    onArm = ::arm,
+                                    onSave = ::saveWakeAlarm,
                                     onCancel = {
                                         AlarmScheduler.cancel(context, it.id)
                                         revision++
@@ -398,23 +424,113 @@ private fun ClockScreen(now: Long, next: ScheduledAlarm?) {
 @Composable
 private fun AlarmScreen(
     alarms: List<ScheduledAlarm>,
-    onArm: (Long, String, AlarmKind) -> Unit,
+    onSave: (Int?, Int, Int, String, Set<Int>) -> Boolean,
     onCancel: (ScheduledAlarm) -> Unit,
 ) {
     val context = LocalContext.current
     val current = LocalDateTime.now()
-    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 16.dp)) {
-        SectionTitle("WAKE PROTOCOLS", "Exact local alarms")
-        PrimaryProtocolButton("+ ARM NEW WAKE SIGNAL") {
-            TimePickerDialog(context, { _, hour, minute ->
-                var target = LocalDateTime.now().withHour(hour).withMinute(minute).withSecond(0).withNano(0)
-                if (!target.isAfter(LocalDateTime.now())) target = target.plusDays(1)
-                onArm(target.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(), "Wake protocol", AlarmKind.ALARM)
-            }, current.hour, current.minute, true).show()
+    val scrollState = rememberScrollState()
+    val scope = rememberCoroutineScope()
+    var selectedHour by rememberSaveable { mutableIntStateOf(current.hour) }
+    var selectedMinute by rememberSaveable { mutableIntStateOf(current.minute) }
+    var title by rememberSaveable { mutableStateOf("Wake protocol") }
+    var repeatMask by rememberSaveable { mutableIntStateOf(0) }
+    var editingId by rememberSaveable { mutableIntStateOf(-1) }
+
+    fun resetEditor() {
+        selectedHour = LocalDateTime.now().hour
+        selectedMinute = LocalDateTime.now().minute
+        title = "Wake protocol"
+        repeatMask = 0
+        editingId = -1
+    }
+
+    fun edit(alarm: ScheduledAlarm) {
+        val moment = Instant.ofEpochMilli(alarm.triggerAtMillis).atZone(ZoneId.systemDefault())
+        selectedHour = alarm.localHour ?: moment.hour
+        selectedMinute = alarm.localMinute ?: moment.minute
+        title = alarm.label
+        repeatMask = alarm.repeatDays.fold(0) { mask, day -> mask or (1 shl (day - 1)) }
+        editingId = alarm.id
+        scope.launch { scrollState.animateScrollTo(0) }
+    }
+
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(scrollState).padding(vertical = 16.dp)) {
+        SectionTitle("WAKE PROTOCOLS", "Time, title and weekly schedule")
+        CyberPanel(title = if (editingId >= 0) "EDIT WAKE SIGNAL" else "NEW WAKE SIGNAL") {
+            OutlinedButton(
+                onClick = {
+                    TimePickerDialog(
+                        context,
+                        { _, hour, minute ->
+                            selectedHour = hour
+                            selectedMinute = minute
+                        },
+                        selectedHour,
+                        selectedMinute,
+                        true,
+                    ).show()
+                },
+                border = BorderStroke(1.dp, Toxic.copy(alpha = 0.55f)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Toxic),
+                shape = RoundedCornerShape(3.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    "%02d:%02d".format(selectedHour, selectedMinute),
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 38.sp,
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = title,
+                onValueChange = { title = it.take(60) },
+                label = { Text("TITLE", fontFamily = FontFamily.Monospace) },
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Toxic,
+                    unfocusedBorderColor = Toxic.copy(alpha = 0.25f),
+                    focusedLabelColor = Toxic,
+                    unfocusedLabelColor = Ice.copy(alpha = 0.45f),
+                    cursorColor = Amber,
+                ),
+                shape = RoundedCornerShape(3.dp),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(14.dp))
+            Text(
+                if (repeatMask == 0) "REPEAT // ONCE" else "REPEAT // WEEKLY",
+                color = Amber,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 10.sp,
+                letterSpacing = 2.sp,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                listOf("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN").forEachIndexed { index, day ->
+                    val bit = 1 shl index
+                    ChoiceChip(day, repeatMask and bit != 0) { repeatMask = repeatMask xor bit }
+                }
+            }
+            PrimaryProtocolButton(if (editingId >= 0) "UPDATE WAKE SIGNAL" else "ARM WAKE SIGNAL") {
+                val safeTitle = title.trim().ifEmpty { "Wake protocol" }
+                val days = (1..7).filterTo(mutableSetOf()) { repeatMask and (1 shl (it - 1)) != 0 }
+                if (onSave(editingId.takeIf { it >= 0 }, selectedHour, selectedMinute, safeTitle, days)) {
+                    resetEditor()
+                }
+            }
+            if (editingId >= 0) {
+                Spacer(Modifier.height(8.dp))
+                SmallProtocolButton("CANCEL EDIT", Modifier.fillMaxWidth()) { resetEditor() }
+            }
         }
         Spacer(Modifier.height(18.dp))
         if (alarms.isEmpty()) EmptyState("NO WAKE SIGNALS ARMED")
-        alarms.forEach { alarm -> ScheduledCard(alarm, System.currentTimeMillis(), onCancel) }
+        alarms.forEach { alarm -> ScheduledCard(alarm, System.currentTimeMillis(), onCancel, onEdit = ::edit) }
         InfoStrip("Alarm signals use Android's exact alarm clock channel and survive app closure.")
     }
 }
@@ -690,7 +806,13 @@ private fun CyberPanel(title: String, accent: Color = Toxic, content: @Composabl
 }
 
 @Composable
-private fun ScheduledCard(alarm: ScheduledAlarm, now: Long, onCancel: (ScheduledAlarm) -> Unit, accent: Color = Toxic) {
+private fun ScheduledCard(
+    alarm: ScheduledAlarm,
+    now: Long,
+    onCancel: (ScheduledAlarm) -> Unit,
+    accent: Color = Toxic,
+    onEdit: ((ScheduledAlarm) -> Unit)? = null,
+) {
     CyberPanel(title = alarm.kind.name, accent = accent) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
@@ -701,16 +823,42 @@ private fun ScheduledCard(alarm: ScheduledAlarm, now: Long, onCancel: (Scheduled
                     fontFamily = FontFamily.Monospace,
                     fontSize = 12.sp,
                 )
+                if (alarm.kind == AlarmKind.ALARM) {
+                    Text(
+                        repeatSummary(alarm.repeatDays),
+                        color = Ice.copy(alpha = 0.5f),
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 9.sp,
+                    )
+                }
             }
-            OutlinedButton(
-                onClick = { onCancel(alarm) },
-                border = BorderStroke(1.dp, Magenta.copy(alpha = 0.55f)),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Magenta),
-                shape = RoundedCornerShape(3.dp),
-            ) { Text("ABORT", fontFamily = FontFamily.Monospace, fontSize = 10.sp) }
+            Column(horizontalAlignment = Alignment.End) {
+                onEdit?.let {
+                    OutlinedButton(
+                        onClick = { it(alarm) },
+                        border = BorderStroke(1.dp, Toxic.copy(alpha = 0.55f)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Toxic),
+                        shape = RoundedCornerShape(3.dp),
+                    ) { Text("EDIT", fontFamily = FontFamily.Monospace, fontSize = 10.sp) }
+                }
+                OutlinedButton(
+                    onClick = { onCancel(alarm) },
+                    border = BorderStroke(1.dp, Magenta.copy(alpha = 0.55f)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Magenta),
+                    shape = RoundedCornerShape(3.dp),
+                ) { Text("DELETE", fontFamily = FontFamily.Monospace, fontSize = 10.sp) }
+            }
         }
     }
     Spacer(Modifier.height(9.dp))
+}
+
+private fun repeatSummary(days: Set<Int>): String {
+    if (days.isEmpty()) return "ONCE"
+    if (days == (1..5).toSet()) return "WEEKDAYS"
+    if (days == setOf(6, 7)) return "WEEKENDS"
+    val labels = listOf("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
+    return days.sorted().joinToString(" · ") { labels[it - 1] }
 }
 
 @Composable

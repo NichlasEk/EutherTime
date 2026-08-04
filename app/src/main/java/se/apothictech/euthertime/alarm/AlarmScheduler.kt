@@ -7,6 +7,8 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import java.time.Instant
+import java.time.ZoneId
 
 object AlarmScheduler {
     const val REMINDER_LEAD_MILLIS = 30 * 60_000L
@@ -32,6 +34,50 @@ object AlarmScheduler {
         return alarm
     }
 
+    fun createWakeAlarm(
+        context: Context,
+        hour: Int,
+        minute: Int,
+        label: String,
+        repeatDays: Set<Int>,
+        nowMillis: Long = System.currentTimeMillis(),
+    ): ScheduledAlarm {
+        val alarm = ScheduledAlarm(
+            id = AlarmStore.nextId(context),
+            triggerAtMillis = nextOccurrenceMillis(hour, minute, repeatDays, nowMillis),
+            label = label,
+            kind = AlarmKind.ALARM,
+            repeatDays = repeatDays,
+            localHour = hour,
+            localMinute = minute,
+        )
+        schedule(context, alarm)
+        return alarm
+    }
+
+    fun updateWakeAlarm(
+        context: Context,
+        id: Int,
+        hour: Int,
+        minute: Int,
+        label: String,
+        repeatDays: Set<Int>,
+        nowMillis: Long = System.currentTimeMillis(),
+    ): ScheduledAlarm? {
+        val existing = AlarmStore.get(context, id) ?: return null
+        cancelPlatform(context, id)
+        val updated = existing.copy(
+            triggerAtMillis = nextOccurrenceMillis(hour, minute, repeatDays, nowMillis),
+            label = label,
+            kind = AlarmKind.ALARM,
+            repeatDays = repeatDays,
+            localHour = hour,
+            localMinute = minute,
+        )
+        schedule(context, updated)
+        return updated
+    }
+
     fun schedule(context: Context, alarm: ScheduledAlarm) {
         require(alarm.triggerAtMillis > System.currentTimeMillis()) { "Alarm must be in the future" }
         AlarmStore.put(context, alarm)
@@ -39,17 +85,41 @@ object AlarmScheduler {
     }
 
     fun cancel(context: Context, id: Int) {
+        cancelPlatform(context, id)
+        AlarmStore.remove(context, id)
+    }
+
+    private fun cancelPlatform(context: Context, id: Int) {
         val manager = context.getSystemService(AlarmManager::class.java)
         manager.cancel(triggerIntent(context, id))
         manager.cancel(reminderIntent(context, id))
         context.getSystemService(NotificationManager::class.java)
             .cancel(AlarmNotifications.reminderNotificationId(id))
-        AlarmStore.remove(context, id)
+    }
+
+    fun dismissOccurrence(context: Context, id: Int) {
+        val alarm = AlarmStore.get(context, id) ?: return
+        if (!alarm.repeatsWeekly || alarm.localHour == null || alarm.localMinute == null) {
+            cancel(context, id)
+            return
+        }
+        cancelPlatform(context, id)
+        schedule(
+            context,
+            alarm.copy(
+                triggerAtMillis = nextOccurrenceMillis(
+                    alarm.localHour,
+                    alarm.localMinute,
+                    alarm.repeatDays,
+                    System.currentTimeMillis(),
+                ),
+            ),
+        )
     }
 
     fun cancelWakeSet(context: Context, anchorId: Int) {
         val anchor = AlarmStore.get(context, anchorId) ?: return
-        wakeSet(anchor, AlarmStore.all(context)).forEach { cancel(context, it.id) }
+        wakeSet(anchor, AlarmStore.all(context)).forEach { dismissOccurrence(context, it.id) }
     }
 
     fun hasWakeSetCompanions(context: Context, anchor: ScheduledAlarm): Boolean =
@@ -65,7 +135,18 @@ object AlarmScheduler {
     fun rescheduleAll(context: Context) {
         val now = System.currentTimeMillis()
         AlarmStore.all(context).forEach { alarm ->
-            if (alarm.triggerAtMillis > now) {
+            if (alarm.repeatsWeekly && alarm.localHour != null && alarm.localMinute != null) {
+                val rescheduled = alarm.copy(
+                    triggerAtMillis = nextOccurrenceMillis(
+                        alarm.localHour,
+                        alarm.localMinute,
+                        alarm.repeatDays,
+                        now,
+                    ),
+                )
+                AlarmStore.put(context, rescheduled)
+                schedulePlatform(context, rescheduled)
+            } else if (alarm.triggerAtMillis > now) {
                 schedulePlatform(context, alarm)
             } else {
                 AlarmStore.remove(context, alarm.id)
@@ -132,5 +213,30 @@ object AlarmScheduler {
                 it.triggerAtMillis >= anchor.triggerAtMillis &&
                 it.triggerAtMillis <= endMillis
         }.sortedBy { it.triggerAtMillis }
+    }
+
+    internal fun nextOccurrenceMillis(
+        hour: Int,
+        minute: Int,
+        repeatDays: Set<Int>,
+        fromMillis: Long,
+        zoneId: ZoneId = ZoneId.systemDefault(),
+    ): Long {
+        require(hour in 0..23)
+        require(minute in 0..59)
+        require(repeatDays.all { it in 1..7 })
+
+        val from = Instant.ofEpochMilli(fromMillis).atZone(zoneId)
+        for (daysAhead in 0..7) {
+            val candidate = from.toLocalDate().plusDays(daysAhead.toLong())
+                .atTime(hour, minute)
+                .atZone(zoneId)
+            if ((repeatDays.isEmpty() || candidate.dayOfWeek.value in repeatDays) &&
+                candidate.toInstant().toEpochMilli() > fromMillis
+            ) {
+                return candidate.toInstant().toEpochMilli()
+            }
+        }
+        error("Could not find next alarm occurrence")
     }
 }

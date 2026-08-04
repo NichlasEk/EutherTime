@@ -10,7 +10,7 @@ class AlarmActionReceiver : BroadcastReceiver() {
         val alarm = AlarmStore.get(context, id)
 
         when (intent.action) {
-            ACTION_CANCEL_UPCOMING -> AlarmScheduler.cancel(context, id)
+            ACTION_CANCEL_UPCOMING -> AlarmScheduler.dismissOccurrence(context, id)
             ACTION_CANCEL_WAKE_SET -> {
                 context.stopService(Intent(context, AlarmSoundService::class.java))
                 AlarmScheduler.cancelWakeSet(context, id)
@@ -21,7 +21,7 @@ class AlarmActionReceiver : BroadcastReceiver() {
             }
             else -> {
                 context.stopService(Intent(context, AlarmSoundService::class.java))
-                AlarmScheduler.cancel(context, id)
+                AlarmScheduler.dismissOccurrence(context, id)
             }
         }
     }

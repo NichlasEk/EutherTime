@@ -36,6 +36,13 @@ object AlarmStore {
                             triggerAtMillis = item.getLong("triggerAtMillis"),
                             label = item.getString("label"),
                             kind = AlarmKind.valueOf(item.getString("kind")),
+                            repeatDays = item.optJSONArray("repeatDays")?.let { days ->
+                                buildSet {
+                                    for (dayIndex in 0 until days.length()) add(days.getInt(dayIndex))
+                                }
+                            }.orEmpty(),
+                            localHour = item.optInt("localHour").takeIf { item.has("localHour") },
+                            localMinute = item.optInt("localMinute").takeIf { item.has("localMinute") },
                         ),
                     )
                 }
@@ -57,10 +64,6 @@ object AlarmStore {
     }
 
     @Synchronized
-    fun removeExpired(context: Context, now: Long = System.currentTimeMillis()) {
-        write(context, all(context).filter { it.triggerAtMillis >= now })
-    }
-
     private fun write(context: Context, alarms: List<ScheduledAlarm>) {
         val array = JSONArray()
         alarms.sortedBy { it.triggerAtMillis }.forEach { alarm ->
@@ -69,7 +72,12 @@ object AlarmStore {
                     .put("id", alarm.id)
                     .put("triggerAtMillis", alarm.triggerAtMillis)
                     .put("label", alarm.label)
-                    .put("kind", alarm.kind.name),
+                    .put("kind", alarm.kind.name)
+                    .put("repeatDays", JSONArray(alarm.repeatDays.sorted()))
+                    .apply {
+                        alarm.localHour?.let { put("localHour", it) }
+                        alarm.localMinute?.let { put("localMinute", it) }
+                    },
             )
         }
         prefs(context).edit { putString(KEY_ALARMS, array.toString()) }
