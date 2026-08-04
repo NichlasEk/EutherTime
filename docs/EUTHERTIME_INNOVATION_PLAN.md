@@ -109,6 +109,17 @@ Create an optional Glance widget with no network dependency.
 - Always provide a documented emergency fallback after a deliberate hold/countdown so a lost tag cannot create an unstoppable alarm.
 - Camera and NFC permissions are requested only when the corresponding mode is enabled.
 
+### NFC beta implemented in `0.4.0-beta1`
+
+- One passive NFC tag can be enrolled or replaced from the Alarms screen without writing to the tag.
+- EutherTime stores only a salted SHA-256 fingerprint in device-protected local storage.
+- NFC release is opt-in per Morning Link and gates the whole-set `I'M UP` action; `Snooze` and `Next Signal` remain available.
+- The ringing lock-screen activity runs Android NFC reader mode and accepts the enrolled tag without unlocking or leaving the alarm screen.
+- Pre-alarm and ringing notifications omit their clear-set shortcut while NFC release is armed, preventing an unintended bypass.
+- A two-step 30-second emergency release remains available for a lost tag, disabled NFC radio, or unavailable reader.
+- Forgetting the enrolled tag also disables NFC release on existing scheduled Morning Links.
+- QR mode remains planned; physical NFC and locked-screen behavior still requires testing on the target GrapheneOS phone.
+
 ## Data model direction
 
 The existing `ScheduledAlarm` stays as the exact scheduled occurrence. New durable records are layered above it:

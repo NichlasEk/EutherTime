@@ -12,6 +12,7 @@ data class ScheduledAlarm(
     val stageIndex: Int = 0,
     val stageRole: WakeStageRole = WakeStageRole.PRIMARY,
     val awakeGuardEnabled: Boolean = false,
+    val nfcChallengeEnabled: Boolean = false,
     val isAwakeGuardFallback: Boolean = false,
     val isIntegrityTest: Boolean = false,
 ) {

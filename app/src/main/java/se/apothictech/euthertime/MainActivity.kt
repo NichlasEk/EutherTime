@@ -6,6 +6,7 @@ import android.app.TimePickerDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.nfc.NfcAdapter
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -81,6 +82,8 @@ import se.apothictech.euthertime.alarm.AlarmKind
 import se.apothictech.euthertime.alarm.AlarmIntegrityInspector
 import se.apothictech.euthertime.alarm.AlarmScheduler
 import se.apothictech.euthertime.alarm.AlarmStore
+import se.apothictech.euthertime.alarm.NfcTagEnrollmentActivity
+import se.apothictech.euthertime.alarm.NfcTagStore
 import se.apothictech.euthertime.alarm.ScheduledAlarm
 import se.apothictech.euthertime.alarm.WakeStageDraft
 import se.apothictech.euthertime.alarm.WakeStageRole
@@ -211,12 +214,13 @@ private fun EutherTimeApp() {
         repeatDays: Set<Int>,
         stages: List<WakeStageDraft>,
         awakeGuardEnabled: Boolean,
+        nfcChallengeEnabled: Boolean,
     ): Boolean {
         val result = runCatching {
             if (wakeSetId == null) {
-                AlarmScheduler.createWakeSet(context, title, repeatDays, stages, awakeGuardEnabled)
+                AlarmScheduler.createWakeSet(context, title, repeatDays, stages, awakeGuardEnabled, nfcChallengeEnabled)
             } else {
-                AlarmScheduler.replaceWakeSet(context, wakeSetId, title, repeatDays, stages, awakeGuardEnabled)
+                AlarmScheduler.replaceWakeSet(context, wakeSetId, title, repeatDays, stages, awakeGuardEnabled, nfcChallengeEnabled)
             }
         }
         result.onSuccess {
@@ -491,6 +495,9 @@ private fun WakeSetEditor(
     onStagesChange: (List<EditableWakeStage>) -> Unit,
     awakeGuardEnabled: Boolean,
     onAwakeGuardChange: (Boolean) -> Unit,
+    nfcChallengeEnabled: Boolean,
+    onNfcChallengeChange: (Boolean) -> Unit,
+    nfcTagEnrolled: Boolean,
     editing: Boolean,
     onSave: () -> Unit,
     onCancel: () -> Unit,
@@ -601,6 +608,21 @@ private fun WakeSetEditor(
             detail = "Five-minute check; ignored check triggers the final safety signal",
             selected = awakeGuardEnabled,
         ) { onAwakeGuardChange(!awakeGuardEnabled) }
+        Spacer(Modifier.height(8.dp))
+        if (nfcTagEnrolled) {
+            ChoiceRow(
+                title = if (nfcChallengeEnabled) "NFC RELEASE // BETA ARMED" else "NFC RELEASE // OFFLINE",
+                detail = "Scan the enrolled tag to clear the whole set; Snooze and Next Signal stay available",
+                selected = nfcChallengeEnabled,
+            ) { onNfcChallengeChange(!nfcChallengeEnabled) }
+        } else {
+            Text(
+                "NFC RELEASE // ENROLL A TAG BELOW TO ENABLE",
+                color = Magenta,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 9.sp,
+            )
+        }
         Spacer(Modifier.height(10.dp))
         PrimaryProtocolButton(
             label = if (editing) "UPDATE MORNING LINK" else "ARM MORNING LINK",
@@ -638,6 +660,14 @@ private fun WakeSetCard(
                 fontSize = 9.sp,
             )
         }
+        if (first.nfcChallengeEnabled) {
+            Text(
+                "NFC RELEASE // BETA ARMED",
+                color = Magenta,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 9.sp,
+            )
+        }
         Spacer(Modifier.height(8.dp))
         ordered.forEach { stage ->
             Row(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -665,6 +695,47 @@ private fun WakeSetCard(
         }
     }
     Spacer(Modifier.height(9.dp))
+}
+
+@Composable
+private fun NfcHardModePanel(
+    adapterAvailable: Boolean,
+    adapterEnabled: Boolean,
+    fingerprint: String?,
+    onEnroll: () -> Unit,
+    onClear: () -> Unit,
+) {
+    val status = when {
+        !adapterAvailable -> "NO NFC HARDWARE"
+        !adapterEnabled -> "NFC DISABLED"
+        fingerprint == null -> "NO TAG ENROLLED"
+        else -> "TAG $fingerprint // READY"
+    }
+    CyberPanel(title = "NFC RELEASE // BETA", accent = Magenta) {
+        Text(
+            status,
+            color = if (fingerprint != null && adapterEnabled) Toxic else Amber,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            "Enroll a passive tag, key fob or card. EutherTime only reads its identifier and stores a salted local fingerprint; the tag is never written.",
+            color = Ice.copy(alpha = 0.55f),
+            fontFamily = FontFamily.Monospace,
+            fontSize = 9.sp,
+            modifier = Modifier.padding(top = 6.dp, bottom = 10.dp),
+        )
+        PrimaryProtocolButton(
+            label = if (fingerprint == null) "ENROLL NFC TAG" else "REPLACE NFC TAG",
+            accent = Magenta,
+            enabled = adapterAvailable,
+            onClick = onEnroll,
+        )
+        if (fingerprint != null) {
+            Spacer(Modifier.height(7.dp))
+            SmallProtocolButton("FORGET TAG", Modifier.fillMaxWidth(), onClick = onClear)
+        }
+    }
 }
 
 @Composable
@@ -740,7 +811,7 @@ private fun WakeJournalPanel() {
 private fun AlarmScreen(
     alarms: List<ScheduledAlarm>,
     onSave: (Int?, Int, Int, String, Set<Int>) -> Boolean,
-    onSaveSet: (Int?, String, Set<Int>, List<WakeStageDraft>, Boolean) -> Boolean,
+    onSaveSet: (Int?, String, Set<Int>, List<WakeStageDraft>, Boolean, Boolean) -> Boolean,
     onCancel: (ScheduledAlarm) -> Unit,
     onDeleteSet: (Int) -> Unit,
     onSkipNext: (ScheduledAlarm) -> Unit,
@@ -760,6 +831,16 @@ private fun AlarmScreen(
     var setTitle by rememberSaveable { mutableStateOf("Morning link") }
     var setRepeatMask by rememberSaveable { mutableIntStateOf(0) }
     var awakeGuardEnabled by rememberSaveable { mutableStateOf(false) }
+    var nfcChallengeEnabled by rememberSaveable { mutableStateOf(false) }
+    var nfcRevision by rememberSaveable { mutableIntStateOf(0) }
+    val nfcEnrollmentLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) {
+        nfcRevision++
+    }
+    val nfcAdapter = remember { NfcAdapter.getDefaultAdapter(context) }
+    val nfcTagEnrolled = remember(nfcRevision) { NfcTagStore.isEnrolled(context) }
+    val nfcFingerprint = remember(nfcRevision) { NfcTagStore.fingerprint(context) }
     var setStages by remember {
         mutableStateOf(
             listOf(
@@ -793,6 +874,7 @@ private fun AlarmScreen(
         setTitle = "Morning link"
         setRepeatMask = 0
         awakeGuardEnabled = false
+        nfcChallengeEnabled = false
         setStages = listOf(
             EditableWakeStage(resetNow.hour, resetNow.minute, WakeStageRole.GENTLE),
             wakeStageAfter(resetNow.hour, resetNow.minute, 15, WakeStageRole.FINAL),
@@ -807,6 +889,7 @@ private fun AlarmScreen(
         setTitle = first.label
         setRepeatMask = first.repeatDays.fold(0) { mask, day -> mask or (1 shl (day - 1)) }
         awakeGuardEnabled = first.awakeGuardEnabled
+        nfcChallengeEnabled = first.nfcChallengeEnabled
         setStages = ordered.map { stage ->
             val moment = Instant.ofEpochMilli(stage.triggerAtMillis).atZone(ZoneId.systemDefault())
             EditableWakeStage(
@@ -908,18 +991,44 @@ private fun AlarmScreen(
                 onStagesChange = { setStages = it },
                 awakeGuardEnabled = awakeGuardEnabled,
                 onAwakeGuardChange = { awakeGuardEnabled = it },
+                nfcChallengeEnabled = nfcChallengeEnabled,
+                onNfcChallengeChange = { nfcChallengeEnabled = it },
+                nfcTagEnrolled = nfcTagEnrolled,
                 editing = editingSetId >= 0,
                 onSave = {
                     val safeTitle = setTitle.trim().ifEmpty { "Morning link" }
                     val days = (1..7).filterTo(mutableSetOf()) { setRepeatMask and (1 shl (it - 1)) != 0 }
                     val drafts = setStages.map { WakeStageDraft(it.hour, it.minute, it.role) }
-                    if (onSaveSet(editingSetId.takeIf { it >= 0 }, safeTitle, days, drafts, awakeGuardEnabled)) {
+                    if (onSaveSet(
+                            editingSetId.takeIf { it >= 0 },
+                            safeTitle,
+                            days,
+                            drafts,
+                            awakeGuardEnabled,
+                            nfcChallengeEnabled,
+                        )
+                    ) {
                         resetSetEditor()
                     }
                 },
                 onCancel = ::resetSetEditor,
             )
         }
+        Spacer(Modifier.height(12.dp))
+        NfcHardModePanel(
+            adapterAvailable = nfcAdapter != null,
+            adapterEnabled = nfcAdapter?.isEnabled == true,
+            fingerprint = nfcFingerprint,
+            onEnroll = {
+                nfcEnrollmentLauncher.launch(Intent(context, NfcTagEnrollmentActivity::class.java))
+            },
+            onClear = {
+                NfcTagStore.clear(context)
+                AlarmScheduler.disableNfcChallenges(context)
+                nfcChallengeEnabled = false
+                nfcRevision++
+            },
+        )
         Spacer(Modifier.height(18.dp))
         if (alarms.isEmpty()) EmptyState("NO WAKE SIGNALS ARMED")
         alarms.filter { it.wakeSetId == null }.forEach { alarm ->

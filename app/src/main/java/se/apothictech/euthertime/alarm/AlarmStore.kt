@@ -49,6 +49,7 @@ object AlarmStore {
                                 WakeStageRole.valueOf(item.optString("stageRole", WakeStageRole.PRIMARY.name))
                             }.getOrDefault(WakeStageRole.PRIMARY),
                             awakeGuardEnabled = item.optBoolean("awakeGuardEnabled", false),
+                            nfcChallengeEnabled = item.optBoolean("nfcChallengeEnabled", false),
                             isAwakeGuardFallback = item.optBoolean("isAwakeGuardFallback", false),
                             isIntegrityTest = item.optBoolean("isIntegrityTest", false),
                         ),
@@ -89,6 +90,7 @@ object AlarmStore {
                         put("stageIndex", alarm.stageIndex)
                         put("stageRole", alarm.stageRole.name)
                         put("awakeGuardEnabled", alarm.awakeGuardEnabled)
+                        put("nfcChallengeEnabled", alarm.nfcChallengeEnabled)
                         put("isAwakeGuardFallback", alarm.isAwakeGuardFallback)
                         put("isIntegrityTest", alarm.isIntegrityTest)
                     },

@@ -2,6 +2,8 @@ package se.apothictech.euthertime.alarm
 
 import android.app.Activity
 import android.content.Intent
+import android.nfc.NfcAdapter
+import android.nfc.Tag
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -18,6 +20,12 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -26,21 +34,29 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
-class AlarmRingActivity : ComponentActivity() {
+class AlarmRingActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
+    private var alarmId = -1
+    private var nfcReleaseRequired = false
+    private var nfcStatus by mutableStateOf("SCAN ENROLLED TAG TO RELEASE")
+    private val nfcAdapter by lazy { NfcAdapter.getDefaultAdapter(this) }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setShowWhenLocked(true)
         setTurnScreenOn(true)
         val id = intent.getIntExtra(AlarmScheduler.EXTRA_ALARM_ID, -1)
+        alarmId = id
         val alarm = AlarmStore.get(this, id)
         val label = alarm?.label ?: intent.getStringExtra(AlarmScheduler.EXTRA_LABEL) ?: "EutherTime"
         val kind = alarm?.kind ?: runCatching {
             AlarmKind.valueOf(intent.getStringExtra(AlarmScheduler.EXTRA_KIND).orEmpty())
         }.getOrDefault(AlarmKind.ALARM)
         val hasWakeSetCompanions = alarm?.let { AlarmScheduler.hasWakeSetCompanions(this, it) } == true
+        nfcReleaseRequired = alarm?.nfcChallengeEnabled == true && NfcTagStore.isEnrolled(this)
 
         setContent {
             RingScreen(
@@ -48,11 +64,60 @@ class AlarmRingActivity : ComponentActivity() {
                 kind = kind,
                 stageRole = alarm?.stageRole ?: WakeStageRole.PRIMARY,
                 isWakeSetStage = alarm?.wakeSetId != null,
-                onDismiss = { complete(id, false) },
+                onDismiss = {
+                    if (nfcReleaseRequired && !hasWakeSetCompanions) {
+                        nfcStatus = "NFC READER READY // PRESENT TAG"
+                    } else {
+                        complete(id, false)
+                    }
+                },
                 onSnooze = { complete(id, true) },
-                onDismissSet = { dismissWakeSet(id) },
+                onDismissSet = {
+                    if (nfcReleaseRequired) {
+                        nfcStatus = "NFC READER READY // PRESENT TAG"
+                    } else {
+                        dismissWakeSet(id)
+                    }
+                },
                 hasWakeSetCompanions = hasWakeSetCompanions,
+                nfcReleaseRequired = nfcReleaseRequired,
+                nfcStatus = nfcStatus,
+                onEmergencyRelease = {
+                    if (hasWakeSetCompanions) dismissWakeSet(id) else complete(id, false)
+                },
             )
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (!nfcReleaseRequired) return
+        when {
+            nfcAdapter == null -> nfcStatus = "NO NFC READER // EMERGENCY RELEASE AVAILABLE"
+            nfcAdapter?.isEnabled != true -> nfcStatus = "NFC DISABLED // EMERGENCY RELEASE AVAILABLE"
+            else -> nfcAdapter?.enableReaderMode(this, this, NfcTagEnrollmentActivity.READER_FLAGS, null)
+        }
+    }
+
+    override fun onPause() {
+        nfcAdapter?.disableReaderMode(this)
+        super.onPause()
+    }
+
+    override fun onTagDiscovered(tag: Tag) {
+        val accepted = NfcTagStore.matches(this, tag.id)
+        runOnUiThread {
+            if (!accepted) {
+                nfcStatus = "TAG REJECTED // TRY ENROLLED TAG"
+                return@runOnUiThread
+            }
+            nfcStatus = "TAG ACCEPTED // MORNING LINK RELEASED"
+            val alarm = AlarmStore.get(this, alarmId)
+            if (alarm?.let { AlarmScheduler.hasWakeSetCompanions(this, it) } == true) {
+                dismissWakeSet(alarmId)
+            } else {
+                complete(alarmId, false)
+            }
         }
     }
 
@@ -87,6 +152,9 @@ private fun RingScreen(
     onSnooze: () -> Unit,
     onDismissSet: () -> Unit,
     hasWakeSetCompanions: Boolean,
+    nfcReleaseRequired: Boolean,
+    nfcStatus: String,
+    onEmergencyRelease: () -> Unit,
 ) {
     val green = Color(0xFF74FF63)
     val amber = Color(0xFFFFB000)
@@ -142,7 +210,11 @@ private fun RingScreen(
                     modifier = Modifier.weight(1f),
                 ) {
                     Text(
-                        if (hasWakeSetCompanions) "NEXT SIGNAL" else "DISMISS",
+                        when {
+                            hasWakeSetCompanions -> "NEXT SIGNAL"
+                            nfcReleaseRequired -> "SCAN NFC"
+                            else -> "DISMISS"
+                        },
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                     )
@@ -154,9 +226,70 @@ private fun RingScreen(
                     colors = ButtonDefaults.buttonColors(containerColor = green, contentColor = Color.Black),
                     modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
                 ) {
-                    Text("I'M UP · DISMISS SET", fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                    Text(
+                        if (nfcReleaseRequired) "I'M UP · SCAN NFC" else "I'M UP · DISMISS SET",
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                    )
                 }
             }
+            if (nfcReleaseRequired) {
+                NfcEmergencyRelease(
+                    status = nfcStatus,
+                    onEmergencyRelease = onEmergencyRelease,
+                )
+            }
         }
+    }
+}
+
+@Composable
+private fun NfcEmergencyRelease(
+    status: String,
+    onEmergencyRelease: () -> Unit,
+) {
+    var deadline by rememberSaveable { mutableLongStateOf(0L) }
+    var now by rememberSaveable { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(deadline) {
+        while (deadline > 0L && now < deadline) {
+            now = System.currentTimeMillis()
+            delay(250L)
+        }
+    }
+    val remainingSeconds = if (deadline == 0L) 30L else ((deadline - now).coerceAtLeast(0L) + 999L) / 1_000L
+
+    Text(
+        status,
+        color = Color(0xFFFF3AA7),
+        fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.Bold,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.padding(top = 20.dp, bottom = 8.dp),
+    )
+    Button(
+        onClick = {
+            when {
+                deadline == 0L -> {
+                    now = System.currentTimeMillis()
+                    deadline = now + 30_000L
+                }
+                now >= deadline -> onEmergencyRelease()
+            }
+        },
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Color(0xFFFF3AA7).copy(alpha = 0.18f),
+            contentColor = Color(0xFFFF3AA7),
+        ),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(
+            when {
+                deadline == 0L -> "LOST TAG? START 30s RELEASE"
+                now < deadline -> "EMERGENCY RELEASE IN ${remainingSeconds}s"
+                else -> "CONFIRM EMERGENCY RELEASE"
+            },
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold,
+        )
     }
 }

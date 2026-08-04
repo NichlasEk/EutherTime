@@ -91,7 +91,7 @@ object AlarmNotifications {
             .setContentIntent(openAppIntent)
             .addAction(0, context.getString(R.string.disarm_this), cancelIntent)
             .apply {
-                if (AlarmScheduler.hasWakeSetCompanions(context, alarm)) {
+                if (AlarmScheduler.hasWakeSetCompanions(context, alarm) && !alarm.nfcChallengeEnabled) {
                     addAction(0, context.getString(R.string.disarm_set), cancelSetIntent)
                 }
             }
@@ -213,7 +213,7 @@ object AlarmNotifications {
                 dismissIntent,
             )
             .apply {
-                if (hasWakeSetCompanions) {
+                if (hasWakeSetCompanions && !alarm.nfcChallengeEnabled) {
                     addAction(0, context.getString(R.string.dismiss_set), dismissSetIntent)
                 }
             }

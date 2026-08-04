@@ -103,6 +103,7 @@ object AlarmScheduler {
         repeatDays: Set<Int>,
         stages: List<WakeStageDraft>,
         awakeGuardEnabled: Boolean,
+        nfcChallengeEnabled: Boolean,
         nowMillis: Long = System.currentTimeMillis(),
     ): List<ScheduledAlarm> {
         require(stages.size >= 2) { "A wake set needs at least two stages" }
@@ -126,6 +127,7 @@ object AlarmScheduler {
                     stageIndex = index,
                     stageRole = stage.role,
                     awakeGuardEnabled = awakeGuardEnabled,
+                    nfcChallengeEnabled = nfcChallengeEnabled,
                 )
                 schedule(context, alarm)
                 alarm
@@ -139,6 +141,7 @@ object AlarmScheduler {
         repeatDays: Set<Int>,
         stages: List<WakeStageDraft>,
         awakeGuardEnabled: Boolean,
+        nfcChallengeEnabled: Boolean,
         nowMillis: Long = System.currentTimeMillis(),
     ): List<ScheduledAlarm> {
         require(stages.size >= 2) { "A wake set needs at least two stages" }
@@ -157,6 +160,7 @@ object AlarmScheduler {
                     stageIndex = index,
                     stageRole = stage.role,
                     awakeGuardEnabled = awakeGuardEnabled,
+                    nfcChallengeEnabled = nfcChallengeEnabled,
                 )
                 schedule(context, alarm)
                 alarm
@@ -165,6 +169,13 @@ object AlarmScheduler {
 
     fun deleteWakeSet(context: Context, wakeSetId: Int) {
         AlarmStore.all(context).filter { it.wakeSetId == wakeSetId }.forEach { cancel(context, it.id) }
+    }
+
+    fun disableNfcChallenges(context: Context) {
+        AlarmStore.all(context)
+            .filter { it.nfcChallengeEnabled }
+            .forEach { AlarmStore.put(context, it.copy(nfcChallengeEnabled = false)) }
+        AlarmWidgetUpdater.update(context)
     }
 
     fun clearWakeSetWithAwakeGuard(context: Context, anchorId: Int) {
@@ -180,6 +191,7 @@ object AlarmScheduler {
             kind = AlarmKind.ALARM,
             stageRole = WakeStageRole.FINAL,
             wakeSetId = anchor.wakeSetId,
+            nfcChallengeEnabled = anchor.nfcChallengeEnabled,
             isAwakeGuardFallback = true,
         )
         schedule(context, fallback)
