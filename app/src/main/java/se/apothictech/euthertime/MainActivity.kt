@@ -5,6 +5,9 @@ import android.app.NotificationManager
 import android.app.TimePickerDialog
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.media.MediaPlayer
+import android.media.RingtoneManager
 import android.net.Uri
 import android.nfc.NfcAdapter
 import android.os.Build
@@ -52,6 +55,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -81,6 +85,8 @@ import kotlinx.coroutines.launch
 import se.apothictech.euthertime.alarm.AlarmKind
 import se.apothictech.euthertime.alarm.AlarmIntegrityInspector
 import se.apothictech.euthertime.alarm.AlarmScheduler
+import se.apothictech.euthertime.alarm.AlarmSoundProfile
+import se.apothictech.euthertime.alarm.AlarmSoundAssets
 import se.apothictech.euthertime.alarm.AlarmStore
 import se.apothictech.euthertime.alarm.NfcTagEnrollmentActivity
 import se.apothictech.euthertime.alarm.NfcTagStore
@@ -184,7 +190,14 @@ private fun EutherTimeApp() {
             }
     }
 
-    fun saveWakeAlarm(id: Int?, hour: Int, minute: Int, label: String, repeatDays: Set<Int>): Boolean {
+    fun saveWakeAlarm(
+        id: Int?,
+        hour: Int,
+        minute: Int,
+        label: String,
+        repeatDays: Set<Int>,
+        soundProfile: AlarmSoundProfile,
+    ): Boolean {
         val needsNotificationPermission = Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         if (needsNotificationPermission) {
@@ -194,9 +207,9 @@ private fun EutherTimeApp() {
         }
         val result = runCatching {
             if (id == null) {
-                AlarmScheduler.createWakeAlarm(context, hour, minute, label, repeatDays)
+                AlarmScheduler.createWakeAlarm(context, hour, minute, label, repeatDays, soundProfile)
             } else {
-                requireNotNull(AlarmScheduler.updateWakeAlarm(context, id, hour, minute, label, repeatDays))
+                requireNotNull(AlarmScheduler.updateWakeAlarm(context, id, hour, minute, label, repeatDays, soundProfile))
             }
         }
         result.onSuccess {
@@ -215,12 +228,30 @@ private fun EutherTimeApp() {
         stages: List<WakeStageDraft>,
         awakeGuardEnabled: Boolean,
         nfcChallengeEnabled: Boolean,
+        soundProfile: AlarmSoundProfile,
     ): Boolean {
         val result = runCatching {
             if (wakeSetId == null) {
-                AlarmScheduler.createWakeSet(context, title, repeatDays, stages, awakeGuardEnabled, nfcChallengeEnabled)
+                AlarmScheduler.createWakeSet(
+                    context,
+                    title,
+                    repeatDays,
+                    stages,
+                    awakeGuardEnabled,
+                    nfcChallengeEnabled,
+                    soundProfile,
+                )
             } else {
-                AlarmScheduler.replaceWakeSet(context, wakeSetId, title, repeatDays, stages, awakeGuardEnabled, nfcChallengeEnabled)
+                AlarmScheduler.replaceWakeSet(
+                    context,
+                    wakeSetId,
+                    title,
+                    repeatDays,
+                    stages,
+                    awakeGuardEnabled,
+                    nfcChallengeEnabled,
+                    soundProfile,
+                )
             }
         }
         result.onSuccess {
@@ -486,6 +517,43 @@ private fun wakeStageAfter(hour: Int, minute: Int, addedMinutes: Int, role: Wake
 }
 
 @Composable
+private fun SoundProfileSelector(
+    selected: AlarmSoundProfile,
+    onSelected: (AlarmSoundProfile) -> Unit,
+    previewing: Boolean,
+    onPreview: () -> Unit,
+) {
+    Text(
+        "SOUND PROFILE // ${selected.displayName}",
+        color = Magenta,
+        fontFamily = FontFamily.Monospace,
+        fontSize = 10.sp,
+        letterSpacing = 2.sp,
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        AlarmSoundProfile.entries.forEach { profile ->
+            ChoiceChip(profile.displayName, selected == profile) { onSelected(profile) }
+        }
+    }
+    Text(
+        "${selected.description} · volume rises with wake stage",
+        color = Ice.copy(alpha = 0.48f),
+        fontFamily = FontFamily.Monospace,
+        fontSize = 9.sp,
+        modifier = Modifier.padding(bottom = 10.dp),
+    )
+    SmallProtocolButton(
+        label = if (previewing) "STOP PREVIEW" else "PREVIEW ${selected.displayName}",
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onPreview,
+    )
+    Spacer(Modifier.height(10.dp))
+}
+
+@Composable
 private fun WakeSetEditor(
     title: String,
     onTitleChange: (String) -> Unit,
@@ -498,6 +566,10 @@ private fun WakeSetEditor(
     nfcChallengeEnabled: Boolean,
     onNfcChallengeChange: (Boolean) -> Unit,
     nfcTagEnrolled: Boolean,
+    soundProfile: AlarmSoundProfile,
+    onSoundProfileChange: (AlarmSoundProfile) -> Unit,
+    previewingSound: AlarmSoundProfile?,
+    onPreviewSound: (AlarmSoundProfile) -> Unit,
     editing: Boolean,
     onSave: () -> Unit,
     onCancel: () -> Unit,
@@ -536,6 +608,13 @@ private fun WakeSetEditor(
                 ChoiceChip(day, repeatMask and bit != 0) { onRepeatMaskChange(repeatMask xor bit) }
             }
         }
+        Spacer(Modifier.height(10.dp))
+        SoundProfileSelector(
+            selected = soundProfile,
+            onSelected = onSoundProfileChange,
+            previewing = previewingSound == soundProfile,
+            onPreview = { onPreviewSound(soundProfile) },
+        )
         stages.forEachIndexed { index, stage ->
             val stageAccent = when (stage.role) {
                 WakeStageRole.GENTLE -> Ice
@@ -668,6 +747,12 @@ private fun WakeSetCard(
                 fontSize = 9.sp,
             )
         }
+        Text(
+            "SOUND // ${first.soundProfile.displayName}",
+            color = Ice.copy(alpha = 0.7f),
+            fontFamily = FontFamily.Monospace,
+            fontSize = 9.sp,
+        )
         Spacer(Modifier.height(8.dp))
         ordered.forEach { stage ->
             Row(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -810,8 +895,8 @@ private fun WakeJournalPanel() {
 @Composable
 private fun AlarmScreen(
     alarms: List<ScheduledAlarm>,
-    onSave: (Int?, Int, Int, String, Set<Int>) -> Boolean,
-    onSaveSet: (Int?, String, Set<Int>, List<WakeStageDraft>, Boolean, Boolean) -> Boolean,
+    onSave: (Int?, Int, Int, String, Set<Int>, AlarmSoundProfile) -> Boolean,
+    onSaveSet: (Int?, String, Set<Int>, List<WakeStageDraft>, Boolean, Boolean, AlarmSoundProfile) -> Boolean,
     onCancel: (ScheduledAlarm) -> Unit,
     onDeleteSet: (Int) -> Unit,
     onSkipNext: (ScheduledAlarm) -> Unit,
@@ -826,11 +911,13 @@ private fun AlarmScreen(
     var title by rememberSaveable { mutableStateOf("Wake protocol") }
     var repeatMask by rememberSaveable { mutableIntStateOf(0) }
     var editingId by rememberSaveable { mutableIntStateOf(-1) }
+    var soundProfileName by rememberSaveable { mutableStateOf(AlarmSoundProfile.NEON_DAWN.name) }
     var showSetEditor by rememberSaveable { mutableStateOf(false) }
     var editingSetId by rememberSaveable { mutableIntStateOf(-1) }
     var setTitle by rememberSaveable { mutableStateOf("Morning link") }
     var setRepeatMask by rememberSaveable { mutableIntStateOf(0) }
     var awakeGuardEnabled by rememberSaveable { mutableStateOf(false) }
+    var setSoundProfileName by rememberSaveable { mutableStateOf(AlarmSoundProfile.NEON_DAWN.name) }
     var nfcChallengeEnabled by rememberSaveable { mutableStateOf(false) }
     var nfcRevision by rememberSaveable { mutableIntStateOf(0) }
     val nfcEnrollmentLauncher = rememberLauncherForActivityResult(
@@ -841,6 +928,8 @@ private fun AlarmScreen(
     val nfcAdapter = remember { NfcAdapter.getDefaultAdapter(context) }
     val nfcTagEnrolled = remember(nfcRevision) { NfcTagStore.isEnrolled(context) }
     val nfcFingerprint = remember(nfcRevision) { NfcTagStore.fingerprint(context) }
+    var previewPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
+    var previewProfileName by remember { mutableStateOf<String?>(null) }
     var setStages by remember {
         mutableStateOf(
             listOf(
@@ -850,12 +939,63 @@ private fun AlarmScreen(
         )
     }
 
+    fun stopSoundPreview() {
+        previewPlayer?.runCatching { stop() }
+        previewPlayer?.release()
+        previewPlayer = null
+        previewProfileName = null
+    }
+
+    fun toggleSoundPreview(profile: AlarmSoundProfile) {
+        if (previewProfileName == profile.name) {
+            stopSoundPreview()
+            return
+        }
+        stopSoundPreview()
+        runCatching {
+            MediaPlayer().apply {
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build(),
+                )
+                val rawResource = AlarmSoundAssets.rawResourceFor(profile)
+                if (rawResource == null) {
+                    val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                        ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                    setDataSource(context, uri)
+                } else {
+                    context.resources.openRawResourceFd(rawResource).use { descriptor ->
+                        setDataSource(descriptor.fileDescriptor, descriptor.startOffset, descriptor.length)
+                    }
+                }
+                isLooping = false
+                setVolume(0.35f, 0.35f)
+                setOnCompletionListener { stopSoundPreview() }
+                prepare()
+                start()
+            }
+        }.onSuccess { player ->
+            previewPlayer = player
+            previewProfileName = profile.name
+        }.onFailure {
+            stopSoundPreview()
+            Toast.makeText(context, "Could not preview ${profile.displayName}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { stopSoundPreview() }
+    }
+
     fun resetEditor() {
         selectedHour = LocalDateTime.now().hour
         selectedMinute = LocalDateTime.now().minute
         title = "Wake protocol"
         repeatMask = 0
         editingId = -1
+        soundProfileName = AlarmSoundProfile.NEON_DAWN.name
     }
 
     fun edit(alarm: ScheduledAlarm) {
@@ -865,6 +1005,7 @@ private fun AlarmScreen(
         title = alarm.label
         repeatMask = alarm.repeatDays.fold(0) { mask, day -> mask or (1 shl (day - 1)) }
         editingId = alarm.id
+        soundProfileName = alarm.soundProfile.name
         scope.launch { scrollState.animateScrollTo(0) }
     }
 
@@ -874,6 +1015,7 @@ private fun AlarmScreen(
         setTitle = "Morning link"
         setRepeatMask = 0
         awakeGuardEnabled = false
+        setSoundProfileName = AlarmSoundProfile.NEON_DAWN.name
         nfcChallengeEnabled = false
         setStages = listOf(
             EditableWakeStage(resetNow.hour, resetNow.minute, WakeStageRole.GENTLE),
@@ -889,6 +1031,7 @@ private fun AlarmScreen(
         setTitle = first.label
         setRepeatMask = first.repeatDays.fold(0) { mask, day -> mask or (1 shl (day - 1)) }
         awakeGuardEnabled = first.awakeGuardEnabled
+        setSoundProfileName = first.soundProfile.name
         nfcChallengeEnabled = first.nfcChallengeEnabled
         setStages = ordered.map { stage ->
             val moment = Instant.ofEpochMilli(stage.triggerAtMillis).atZone(ZoneId.systemDefault())
@@ -963,10 +1106,27 @@ private fun AlarmScreen(
                     ChoiceChip(day, repeatMask and bit != 0) { repeatMask = repeatMask xor bit }
                 }
             }
+            SoundProfileSelector(
+                selected = AlarmSoundProfile.valueOf(soundProfileName),
+                onSelected = {
+                    stopSoundPreview()
+                    soundProfileName = it.name
+                },
+                previewing = previewProfileName == soundProfileName,
+                onPreview = { toggleSoundPreview(AlarmSoundProfile.valueOf(soundProfileName)) },
+            )
             PrimaryProtocolButton(if (editingId >= 0) "UPDATE WAKE SIGNAL" else "ARM WAKE SIGNAL") {
                 val safeTitle = title.trim().ifEmpty { "Wake protocol" }
                 val days = (1..7).filterTo(mutableSetOf()) { repeatMask and (1 shl (it - 1)) != 0 }
-                if (onSave(editingId.takeIf { it >= 0 }, selectedHour, selectedMinute, safeTitle, days)) {
+                if (onSave(
+                        editingId.takeIf { it >= 0 },
+                        selectedHour,
+                        selectedMinute,
+                        safeTitle,
+                        days,
+                        AlarmSoundProfile.valueOf(soundProfileName),
+                    )
+                ) {
                     resetEditor()
                 }
             }
@@ -994,6 +1154,13 @@ private fun AlarmScreen(
                 nfcChallengeEnabled = nfcChallengeEnabled,
                 onNfcChallengeChange = { nfcChallengeEnabled = it },
                 nfcTagEnrolled = nfcTagEnrolled,
+                soundProfile = AlarmSoundProfile.valueOf(setSoundProfileName),
+                onSoundProfileChange = {
+                    stopSoundPreview()
+                    setSoundProfileName = it.name
+                },
+                previewingSound = previewProfileName?.let(AlarmSoundProfile::valueOf),
+                onPreviewSound = ::toggleSoundPreview,
                 editing = editingSetId >= 0,
                 onSave = {
                     val safeTitle = setTitle.trim().ifEmpty { "Morning link" }
@@ -1006,6 +1173,7 @@ private fun AlarmScreen(
                             drafts,
                             awakeGuardEnabled,
                             nfcChallengeEnabled,
+                            AlarmSoundProfile.valueOf(setSoundProfileName),
                         )
                     ) {
                         resetSetEditor()
@@ -1344,6 +1512,12 @@ private fun ScheduledCard(
                     Text(
                         repeatSummary(alarm.repeatDays),
                         color = Ice.copy(alpha = 0.5f),
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 9.sp,
+                    )
+                    Text(
+                        "SOUND // ${alarm.soundProfile.displayName}",
+                        color = Magenta.copy(alpha = 0.75f),
                         fontFamily = FontFamily.Monospace,
                         fontSize = 9.sp,
                     )

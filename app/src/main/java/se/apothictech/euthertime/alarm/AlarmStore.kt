@@ -48,6 +48,9 @@ object AlarmStore {
                             stageRole = runCatching {
                                 WakeStageRole.valueOf(item.optString("stageRole", WakeStageRole.PRIMARY.name))
                             }.getOrDefault(WakeStageRole.PRIMARY),
+                            soundProfile = runCatching {
+                                AlarmSoundProfile.valueOf(item.optString("soundProfile", AlarmSoundProfile.SYSTEM.name))
+                            }.getOrDefault(AlarmSoundProfile.SYSTEM),
                             awakeGuardEnabled = item.optBoolean("awakeGuardEnabled", false),
                             nfcChallengeEnabled = item.optBoolean("nfcChallengeEnabled", false),
                             isAwakeGuardFallback = item.optBoolean("isAwakeGuardFallback", false),
@@ -89,6 +92,7 @@ object AlarmStore {
                         alarm.wakeSetId?.let { put("wakeSetId", it) }
                         put("stageIndex", alarm.stageIndex)
                         put("stageRole", alarm.stageRole.name)
+                        put("soundProfile", alarm.soundProfile.name)
                         put("awakeGuardEnabled", alarm.awakeGuardEnabled)
                         put("nfcChallengeEnabled", alarm.nfcChallengeEnabled)
                         put("isAwakeGuardFallback", alarm.isAwakeGuardFallback)

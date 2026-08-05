@@ -12,8 +12,8 @@ android {
         applicationId = "se.apothictech.euthertime"
         minSdk = 28
         targetSdk = 36
-        versionCode = 11
-        versionName = "0.4.0-beta1"
+        versionCode = 12
+        versionName = "0.4.0-beta2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

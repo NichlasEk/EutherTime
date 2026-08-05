@@ -43,6 +43,7 @@ object AlarmScheduler {
         minute: Int,
         label: String,
         repeatDays: Set<Int>,
+        soundProfile: AlarmSoundProfile,
         nowMillis: Long = System.currentTimeMillis(),
     ): ScheduledAlarm {
         val alarm = ScheduledAlarm(
@@ -53,6 +54,7 @@ object AlarmScheduler {
             repeatDays = repeatDays,
             localHour = hour,
             localMinute = minute,
+            soundProfile = soundProfile,
         )
         schedule(context, alarm)
         return alarm
@@ -81,6 +83,7 @@ object AlarmScheduler {
         minute: Int,
         label: String,
         repeatDays: Set<Int>,
+        soundProfile: AlarmSoundProfile,
         nowMillis: Long = System.currentTimeMillis(),
     ): ScheduledAlarm? {
         val existing = AlarmStore.get(context, id) ?: return null
@@ -92,6 +95,7 @@ object AlarmScheduler {
             repeatDays = repeatDays,
             localHour = hour,
             localMinute = minute,
+            soundProfile = soundProfile,
         )
         schedule(context, updated)
         return updated
@@ -104,6 +108,7 @@ object AlarmScheduler {
         stages: List<WakeStageDraft>,
         awakeGuardEnabled: Boolean,
         nfcChallengeEnabled: Boolean,
+        soundProfile: AlarmSoundProfile,
         nowMillis: Long = System.currentTimeMillis(),
     ): List<ScheduledAlarm> {
         require(stages.size >= 2) { "A wake set needs at least two stages" }
@@ -126,6 +131,7 @@ object AlarmScheduler {
                     wakeSetId = wakeSetId,
                     stageIndex = index,
                     stageRole = stage.role,
+                    soundProfile = soundProfile,
                     awakeGuardEnabled = awakeGuardEnabled,
                     nfcChallengeEnabled = nfcChallengeEnabled,
                 )
@@ -142,6 +148,7 @@ object AlarmScheduler {
         stages: List<WakeStageDraft>,
         awakeGuardEnabled: Boolean,
         nfcChallengeEnabled: Boolean,
+        soundProfile: AlarmSoundProfile,
         nowMillis: Long = System.currentTimeMillis(),
     ): List<ScheduledAlarm> {
         require(stages.size >= 2) { "A wake set needs at least two stages" }
@@ -159,6 +166,7 @@ object AlarmScheduler {
                     wakeSetId = wakeSetId,
                     stageIndex = index,
                     stageRole = stage.role,
+                    soundProfile = soundProfile,
                     awakeGuardEnabled = awakeGuardEnabled,
                     nfcChallengeEnabled = nfcChallengeEnabled,
                 )
@@ -191,6 +199,7 @@ object AlarmScheduler {
             kind = AlarmKind.ALARM,
             stageRole = WakeStageRole.FINAL,
             wakeSetId = anchor.wakeSetId,
+            soundProfile = anchor.soundProfile,
             nfcChallengeEnabled = anchor.nfcChallengeEnabled,
             isAwakeGuardFallback = true,
         )

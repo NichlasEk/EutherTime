@@ -8,6 +8,9 @@ import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.os.IBinder
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
 
@@ -15,6 +18,8 @@ class AlarmSoundService : Service() {
     private var mediaPlayer: MediaPlayer? = null
     private var vibrator: Vibrator? = null
     private var audioFocusRequest: AudioFocusRequest? = null
+    private val volumeHandler = Handler(Looper.getMainLooper())
+    private var volumeRamp: Runnable? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -35,11 +40,11 @@ class AlarmSoundService : Service() {
         )
 
         startForeground(AlarmNotifications.notificationId(alarm.id), AlarmNotifications.build(this, alarm))
-        beginSignal(alarm.stageRole)
+        beginSignal(alarm.stageRole, alarm.soundProfile)
         return START_NOT_STICKY
     }
 
-    private fun beginSignal(role: WakeStageRole) {
+    private fun beginSignal(role: WakeStageRole, soundProfile: AlarmSoundProfile) {
         if (mediaPlayer?.isPlaying == true) return
         val profile = AlarmSignalProfiles.forRole(role)
 
@@ -55,22 +60,9 @@ class AlarmSoundService : Service() {
             .build()
         audioManager.requestAudioFocus(audioFocusRequest!!)
 
-        runCatching {
-            val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-            mediaPlayer = MediaPlayer().apply {
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ALARM)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                        .build(),
-                )
-                setDataSource(this@AlarmSoundService, uri)
-                isLooping = true
-                setVolume(profile.gain, profile.gain)
-                prepare()
-                start()
-            }
+        val started = startMediaPlayer(soundProfile, profile)
+        if (!started && soundProfile != AlarmSoundProfile.SYSTEM) {
+            startMediaPlayer(AlarmSoundProfile.SYSTEM, profile)
         }
 
         vibrator = getSystemService(Vibrator::class.java)
@@ -79,7 +71,50 @@ class AlarmSoundService : Service() {
         )
     }
 
+    private fun startMediaPlayer(soundProfile: AlarmSoundProfile, profile: AlarmSignalProfile): Boolean =
+        runCatching {
+            val player = MediaPlayer().apply {
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build(),
+                )
+                val rawResource = AlarmSoundAssets.rawResourceFor(soundProfile)
+                if (rawResource == null) {
+                    val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                        ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                    setDataSource(this@AlarmSoundService, uri)
+                } else {
+                    resources.openRawResourceFd(rawResource).use { descriptor ->
+                        setDataSource(descriptor.fileDescriptor, descriptor.startOffset, descriptor.length)
+                    }
+                }
+                isLooping = true
+                setVolume(profile.startGain, profile.startGain)
+                prepare()
+                start()
+            }
+            mediaPlayer = player
+            startVolumeRamp(profile)
+        }.isSuccess
+
+    private fun startVolumeRamp(profile: AlarmSignalProfile) {
+        val startedAt = SystemClock.elapsedRealtime()
+        volumeRamp = object : Runnable {
+            override fun run() {
+                val player = mediaPlayer ?: return
+                val elapsed = SystemClock.elapsedRealtime() - startedAt
+                val gain = profile.gainAt(elapsed)
+                player.runCatching { setVolume(gain, gain) }
+                if (elapsed < profile.rampDurationMillis) volumeHandler.postDelayed(this, 500L)
+            }
+        }.also(volumeHandler::post)
+    }
+
     override fun onDestroy() {
+        volumeRamp?.let(volumeHandler::removeCallbacks)
+        volumeRamp = null
         mediaPlayer?.runCatching { stop() }
         mediaPlayer?.release()
         mediaPlayer = null
