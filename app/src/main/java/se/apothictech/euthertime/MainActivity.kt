@@ -55,6 +55,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -65,6 +66,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -108,6 +110,7 @@ private val ToxicDim = Color(0xFF2C8F3D)
 private val Amber = Color(0xFFFFB000)
 private val Magenta = Color(0xFFFF3AA7)
 private val Ice = Color(0xFFB9FFE8)
+private val LocalUiSoundPlayer = staticCompositionLocalOf<(UiSoundCue) -> Unit> { { } }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -128,9 +131,27 @@ private enum class TimeTab(val title: String, val sigil: String) {
 @Composable
 private fun EutherTimeApp() {
     val context = LocalContext.current
+    val uiSoundEngine = remember(context) { UiSoundEngine(context.applicationContext) }
+    var interfaceAudioEnabled by remember {
+        mutableStateOf(UiSoundPreferences.isEnabled(context))
+    }
     var selectedTab by remember { mutableStateOf(TimeTab.CLOCK) }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var revision by remember { mutableIntStateOf(0) }
+
+    DisposableEffect(uiSoundEngine) {
+        onDispose { uiSoundEngine.release() }
+    }
+
+    fun playUiSound(cue: UiSoundCue) {
+        uiSoundEngine.play(cue, interfaceAudioEnabled)
+    }
+
+    fun setInterfaceAudio(enabled: Boolean) {
+        interfaceAudioEnabled = enabled
+        UiSoundPreferences.setEnabled(context, enabled)
+        if (enabled) uiSoundEngine.play(UiSoundCue.CONFIRM, true)
+    }
     val requestFullScreenAlarmAccess = remember(context) {
         {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -183,9 +204,11 @@ private fun EutherTimeApp() {
         runCatching { AlarmScheduler.create(context, triggerAt, label, kind) }
             .onSuccess {
                 revision++
+                playUiSound(UiSoundCue.CONFIRM)
                 Toast.makeText(context, "$label armed", Toast.LENGTH_SHORT).show()
             }
             .onFailure {
+                playUiSound(UiSoundCue.ERROR)
                 Toast.makeText(context, "Could not arm signal: ${it.message}", Toast.LENGTH_LONG).show()
             }
     }
@@ -214,8 +237,10 @@ private fun EutherTimeApp() {
         }
         result.onSuccess {
             revision++
+            playUiSound(UiSoundCue.CONFIRM)
             Toast.makeText(context, "$label ${if (id == null) "armed" else "updated"}", Toast.LENGTH_SHORT).show()
         }.onFailure {
+            playUiSound(UiSoundCue.ERROR)
             Toast.makeText(context, "Could not save alarm: ${it.message}", Toast.LENGTH_LONG).show()
         }
         return result.isSuccess
@@ -256,8 +281,10 @@ private fun EutherTimeApp() {
         }
         result.onSuccess {
             revision++
+            playUiSound(UiSoundCue.CONFIRM)
             Toast.makeText(context, "$title wake set armed", Toast.LENGTH_SHORT).show()
         }.onFailure {
+            playUiSound(UiSoundCue.ERROR)
             Toast.makeText(context, "Could not save wake set: ${it.message}", Toast.LENGTH_LONG).show()
         }
         return result.isSuccess
@@ -267,9 +294,11 @@ private fun EutherTimeApp() {
         runCatching { AlarmScheduler.createIntegrityTest(context) }
             .onSuccess {
                 revision++
+                playUiSound(UiSoundCue.CONFIRM)
                 Toast.makeText(context, "Integrity signal armed for 60 seconds", Toast.LENGTH_LONG).show()
             }
             .onFailure {
+                playUiSound(UiSoundCue.ERROR)
                 Toast.makeText(context, "Integrity test failed: ${it.message}", Toast.LENGTH_LONG).show()
             }
     }
@@ -289,8 +318,9 @@ private fun EutherTimeApp() {
         onSurface = Ice,
     )
 
-    MaterialTheme(colorScheme = scheme) {
-        Surface(modifier = Modifier.fillMaxSize(), color = Void) {
+    CompositionLocalProvider(LocalUiSoundPlayer provides ::playUiSound) {
+        MaterialTheme(colorScheme = scheme) {
+            Surface(modifier = Modifier.fillMaxSize(), color = Void) {
             CyberBackground {
                 Scaffold(
                     containerColor = Color.Transparent,
@@ -308,7 +338,12 @@ private fun EutherTimeApp() {
                         SystemHeader(now, alarms.firstOrNull())
                         Box(modifier = Modifier.weight(1f)) {
                             when (selectedTab) {
-                                TimeTab.CLOCK -> ClockScreen(now, alarms.firstOrNull())
+                                TimeTab.CLOCK -> ClockScreen(
+                                    now = now,
+                                    next = alarms.firstOrNull(),
+                                    interfaceAudioEnabled = interfaceAudioEnabled,
+                                    onInterfaceAudioChange = ::setInterfaceAudio,
+                                )
                                 TimeTab.ALARMS -> AlarmScreen(
                                     alarms = alarms.filter { it.kind == AlarmKind.ALARM },
                                     onSave = ::saveWakeAlarm,
@@ -352,6 +387,7 @@ private fun EutherTimeApp() {
                 }
             }
         }
+    }
     }
 }
 
@@ -419,6 +455,7 @@ private fun SystemHeader(now: Long, next: ScheduledAlarm?) {
 
 @Composable
 private fun TimeNavigation(selected: TimeTab, onSelected: (TimeTab) -> Unit) {
+    val playUiSound = LocalUiSoundPlayer.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -433,7 +470,10 @@ private fun TimeNavigation(selected: TimeTab, onSelected: (TimeTab) -> Unit) {
                 modifier = Modifier
                     .weight(1f)
                     .background(if (active) Toxic.copy(alpha = 0.12f) else Color.Transparent, RoundedCornerShape(5.dp))
-                    .clickable { onSelected(tab) }
+                    .clickable {
+                        if (!active) playUiSound(UiSoundCue.SELECT)
+                        onSelected(tab)
+                    }
                     .padding(vertical = 5.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -451,7 +491,12 @@ private fun TimeNavigation(selected: TimeTab, onSelected: (TimeTab) -> Unit) {
 }
 
 @Composable
-private fun ClockScreen(now: Long, next: ScheduledAlarm?) {
+private fun ClockScreen(
+    now: Long,
+    next: ScheduledAlarm?,
+    interfaceAudioEnabled: Boolean,
+    onInterfaceAudioChange: (Boolean) -> Unit,
+) {
     val moment = Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault())
     val locale = LocalConfiguration.current.locales[0]
     Column(
@@ -502,6 +547,12 @@ private fun ClockScreen(now: Long, next: ScheduledAlarm?) {
                 }
             }
         }
+        Spacer(Modifier.height(10.dp))
+        ChoiceRow(
+            title = if (interfaceAudioEnabled) "INTERFACE AUDIO // ONLINE" else "INTERFACE AUDIO // MUTED",
+            detail = "Short UI signals · automatically quiet in silent or vibrate mode",
+            selected = interfaceAudioEnabled,
+        ) { onInterfaceAudioChange(!interfaceAudioEnabled) }
     }
 }
 
@@ -575,6 +626,7 @@ private fun WakeSetEditor(
     onCancel: () -> Unit,
 ) {
     val context = LocalContext.current
+    val playUiSound = LocalUiSoundPlayer.current
     CyberPanel(title = if (editing) "EDIT MORNING LINK" else "MULTI-STAGE MORNING LINK", accent = Amber) {
         OutlinedTextField(
             value = title,
@@ -627,6 +679,7 @@ private fun WakeSetEditor(
             ) {
                 OutlinedButton(
                     onClick = {
+                        playUiSound(UiSoundCue.TAP)
                         TimePickerDialog(
                             context,
                             { _, hour, minute ->
@@ -903,6 +956,7 @@ private fun AlarmScreen(
     onRunIntegrityTest: () -> Unit,
 ) {
     val context = LocalContext.current
+    val playUiSound = LocalUiSoundPlayer.current
     val current = LocalDateTime.now()
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
@@ -981,6 +1035,7 @@ private fun AlarmScreen(
             previewProfileName = profile.name
         }.onFailure {
             stopSoundPreview()
+            playUiSound(UiSoundCue.ERROR)
             Toast.makeText(context, "Could not preview ${profile.displayName}", Toast.LENGTH_SHORT).show()
         }
     }
@@ -1050,6 +1105,7 @@ private fun AlarmScreen(
         CyberPanel(title = if (editingId >= 0) "EDIT WAKE SIGNAL" else "NEW WAKE SIGNAL") {
             OutlinedButton(
                 onClick = {
+                    playUiSound(UiSoundCue.TAP)
                     TimePickerDialog(
                         context,
                         { _, hour, minute ->
@@ -1498,6 +1554,7 @@ private fun ScheduledCard(
     accent: Color = Toxic,
     onEdit: ((ScheduledAlarm) -> Unit)? = null,
 ) {
+    val playUiSound = LocalUiSoundPlayer.current
     CyberPanel(title = alarm.kind.name, accent = accent) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
@@ -1526,14 +1583,20 @@ private fun ScheduledCard(
             Column(horizontalAlignment = Alignment.End) {
                 onEdit?.let {
                     OutlinedButton(
-                        onClick = { it(alarm) },
+                        onClick = {
+                            playUiSound(UiSoundCue.TAP)
+                            it(alarm)
+                        },
                         border = BorderStroke(1.dp, Toxic.copy(alpha = 0.55f)),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Toxic),
                         shape = RoundedCornerShape(3.dp),
                     ) { Text("EDIT", fontFamily = FontFamily.Monospace, fontSize = 10.sp) }
                 }
                 OutlinedButton(
-                    onClick = { onCancel(alarm) },
+                    onClick = {
+                        playUiSound(UiSoundCue.TAP)
+                        onCancel(alarm)
+                    },
                     border = BorderStroke(1.dp, Magenta.copy(alpha = 0.55f)),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Magenta),
                     shape = RoundedCornerShape(3.dp),
@@ -1554,8 +1617,12 @@ private fun repeatSummary(days: Set<Int>): String {
 
 @Composable
 private fun ChoiceRow(title: String, detail: String, selected: Boolean, onClick: () -> Unit) {
+    val playUiSound = LocalUiSoundPlayer.current
     OutlinedButton(
-        onClick = onClick,
+        onClick = {
+            playUiSound(UiSoundCue.SELECT)
+            onClick()
+        },
         colors = ButtonDefaults.outlinedButtonColors(
             containerColor = if (selected) Toxic.copy(alpha = 0.13f) else Color.Transparent,
             contentColor = if (selected) Toxic else Ice.copy(alpha = 0.65f),
@@ -1573,8 +1640,12 @@ private fun ChoiceRow(title: String, detail: String, selected: Boolean, onClick:
 
 @Composable
 private fun ChoiceChip(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val playUiSound = LocalUiSoundPlayer.current
     OutlinedButton(
-        onClick = onClick,
+        onClick = {
+            playUiSound(UiSoundCue.SELECT)
+            onClick()
+        },
         colors = ButtonDefaults.outlinedButtonColors(
             containerColor = if (selected) Toxic.copy(alpha = 0.16f) else Color.Transparent,
             contentColor = if (selected) Toxic else Ice.copy(alpha = 0.55f),
@@ -1593,8 +1664,12 @@ private fun PrimaryProtocolButton(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
+    val playUiSound = LocalUiSoundPlayer.current
     Button(
-        onClick = onClick,
+        onClick = {
+            playUiSound(UiSoundCue.TAP)
+            onClick()
+        },
         enabled = enabled,
         colors = ButtonDefaults.buttonColors(containerColor = accent, contentColor = Void),
         shape = RoundedCornerShape(3.dp),
@@ -1609,8 +1684,12 @@ private fun SmallProtocolButton(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
+    val playUiSound = LocalUiSoundPlayer.current
     OutlinedButton(
-        onClick = onClick,
+        onClick = {
+            playUiSound(UiSoundCue.TAP)
+            onClick()
+        },
         enabled = enabled,
         colors = ButtonDefaults.outlinedButtonColors(contentColor = Toxic),
         border = BorderStroke(1.dp, Toxic.copy(alpha = if (enabled) 0.5f else 0.12f)),

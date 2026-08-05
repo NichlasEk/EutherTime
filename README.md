@@ -11,6 +11,7 @@ This project is implemented from scratch. It does not contain source code, visua
 - Quick countdown timers
 - Dedicated Egg Protocol with consistency, size, and starting-temperature controls
 - Stopwatch with lap markers
+- Original low-volume interface signals with a persistent mute switch and automatic silent/vibrate suppression
 - Alarm sound, vibration, full-screen alarm activity, dismiss and five-minute snooze
 - Silent heads-up notice 30 minutes before alarms, with a one-tap disarm action
 - Re-scheduling after boot, time changes, and timezone changes

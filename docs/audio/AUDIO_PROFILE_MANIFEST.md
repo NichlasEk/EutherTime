@@ -27,3 +27,16 @@ ffmpeg -i INPUT.wav -af "atrim=end=MEASURED_END,asetpts=PTS-STARTPTS,loudnorm=I=
 | `euthertime_red_shift.ogg` | 338906 bytes | `8f04583eab30a45fc9910f6dd43c3b052a57631f887a8eeb7904b7b6e1cd8cc8` |
 
 Total bundled audio is approximately 1.2 MB instead of 13.8 MB for the three PCM WAV masters. A silence scan found no remaining segment longer than 0.5 seconds.
+
+## Interface audio (`0.4.0-beta3`)
+
+The menu signals are sub-second procedural tones rather than ACE-Step music generations. This keeps button feedback crisp, reproducible, and tiny. They play through Android's sonification usage, never the alarm stream, and are suppressed whenever the app switch is off or the phone is in silent/vibrate mode.
+
+| Cue | Design | Duration | Size | Ogg SHA-256 |
+| --- | --- | ---: | ---: | --- |
+| Tap | Falling 1150–720 Hz tick | 55 ms | 3728 bytes | `4c589482db92bd4152828bb1f84d8bdd575b839f05bc257342e70090bfba8cce` |
+| Select | Staggered 610/980 Hz pair | 120 ms | 3970 bytes | `a9090ff8bf554ed3ea8d4d8d4ab543eb13daf37944a8393ba21014c299b6e1a6` |
+| Confirm | Rising 520/780/1040 Hz triad | 190 ms | 4475 bytes | `0ddab95994d0fd7df0cf86b0d2991299bcbb68a46e8b89c15b0ade3fbc615415` |
+| Error | Falling detuned 185/232 Hz pair | 160 ms | 4194 bytes | `0312e4b665e19172ff60175fd81c0989a4f705cdcdf260292bbb9a55f345d8d0` |
+
+The four mono 44.1 kHz Ogg/Vorbis resources total 16,367 bytes.

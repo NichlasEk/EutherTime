@@ -57,6 +57,7 @@ Turn the current proximity-based wake grouping into an explicit model.
 - Generated profiles use compressed 48 kHz Ogg/Vorbis application copies and keep the Android system alarm as playback fallback.
 - Every stage ramps smoothly rather than jumping to a fixed level: GENTLE 8–32% over 60 seconds, PRIMARY 22–72% over 45 seconds, and FINAL 50–100% over 25 seconds.
 - The editor previews profiles at a deliberately reduced level before an alarm is armed.
+- `0.4.0-beta3` adds a compact procedural interface-audio family for taps, selections, confirmations, and errors. It has a persistent switch on the clock screen, follows normal ringer mode, and never uses the alarm stream.
 - Optional “Are you really awake?” guard after clearing a set:
   - Show a quiet confirmation after five minutes.
   - If confirmed, finish the morning.
