@@ -7,6 +7,9 @@ import android.content.Intent
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action in supportedActions) {
+            if (intent.action == Intent.ACTION_BOOT_COMPLETED || intent.action == Intent.ACTION_LOCKED_BOOT_COMPLETED) {
+                ActiveAlarmStore.clear(context)
+            }
             AlarmScheduler.rescheduleAll(context)
         }
     }

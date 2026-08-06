@@ -14,6 +14,7 @@ This project is implemented from scratch. It does not contain source code, visua
 - Original low-volume interface signals with a persistent mute switch and automatic silent/vibrate suppression
 - Alarm sound, vibration, full-screen alarm activity, dismiss and five-minute snooze
 - Silent heads-up notice 30 minutes before alarms, with a one-tap disarm action
+- Compact next-signal control in the app and persistent Snooze/Dismiss handling while an alarm is ringing
 - Re-scheduling after boot, time changes, and timezone changes
 - Direct-boot-aware alarm storage
 - No network permission, analytics, accounts, ads, or telemetry

@@ -12,6 +12,8 @@ import android.net.Uri
 import android.nfc.NfcAdapter
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -86,10 +88,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import se.apothictech.euthertime.alarm.AlarmKind
 import se.apothictech.euthertime.alarm.AlarmIntegrityInspector
+import se.apothictech.euthertime.alarm.AlarmRingActivity
 import se.apothictech.euthertime.alarm.AlarmScheduler
 import se.apothictech.euthertime.alarm.AlarmSoundProfile
 import se.apothictech.euthertime.alarm.AlarmSoundAssets
 import se.apothictech.euthertime.alarm.AlarmStore
+import se.apothictech.euthertime.alarm.ActiveAlarmStore
 import se.apothictech.euthertime.alarm.NfcTagEnrollmentActivity
 import se.apothictech.euthertime.alarm.NfcTagStore
 import se.apothictech.euthertime.alarm.ScheduledAlarm
@@ -113,10 +117,37 @@ private val Ice = Color(0xFFB9FFE8)
 private val LocalUiSoundPlayer = staticCompositionLocalOf<(UiSoundCue) -> Unit> { { } }
 
 class MainActivity : ComponentActivity() {
+    private val activeAlarmHandler = Handler(Looper.getMainLooper())
+    private val activeAlarmCheck = object : Runnable {
+        override fun run() {
+            ActiveAlarmStore.current(this@MainActivity)?.let { alarm ->
+                startActivity(
+                    Intent(this@MainActivity, AlarmRingActivity::class.java)
+                        .putExtra(AlarmScheduler.EXTRA_ALARM_ID, alarm.id)
+                        .putExtra(AlarmScheduler.EXTRA_LABEL, alarm.label)
+                        .putExtra(AlarmScheduler.EXTRA_KIND, alarm.kind.name),
+                )
+                return
+            }
+            activeAlarmHandler.postDelayed(this, 500L)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent { EutherTimeApp() }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        activeAlarmHandler.removeCallbacks(activeAlarmCheck)
+        activeAlarmHandler.post(activeAlarmCheck)
+    }
+
+    override fun onPause() {
+        activeAlarmHandler.removeCallbacks(activeAlarmCheck)
+        super.onPause()
     }
 }
 
@@ -303,10 +334,27 @@ private fun EutherTimeApp() {
             }
     }
 
+    fun disarmNext(alarm: ScheduledAlarm) {
+        runCatching { AlarmScheduler.dismissOccurrence(context, alarm.id) }
+            .onSuccess {
+                revision++
+                playUiSound(UiSoundCue.CONFIRM)
+                val message = if (alarm.repeatsWeekly) {
+                    "${alarm.label} skipped · weekly schedule preserved"
+                } else {
+                    "${alarm.label} disarmed"
+                }
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            }
+            .onFailure {
+                playUiSound(UiSoundCue.ERROR)
+                Toast.makeText(context, "Could not disarm signal: ${it.message}", Toast.LENGTH_LONG).show()
+            }
+    }
+
     val alarms = remember(revision, now / 1_000L) {
         AlarmStore.all(context).filter { it.triggerAtMillis >= now }
     }
-
     val scheme = darkColorScheme(
         primary = Toxic,
         onPrimary = Void,
@@ -343,6 +391,7 @@ private fun EutherTimeApp() {
                                     next = alarms.firstOrNull(),
                                     interfaceAudioEnabled = interfaceAudioEnabled,
                                     onInterfaceAudioChange = ::setInterfaceAudio,
+                                    onDisarmNext = ::disarmNext,
                                 )
                                 TimeTab.ALARMS -> AlarmScreen(
                                     alarms = alarms.filter { it.kind == AlarmKind.ALARM },
@@ -496,6 +545,7 @@ private fun ClockScreen(
     next: ScheduledAlarm?,
     interfaceAudioEnabled: Boolean,
     onInterfaceAudioChange: (Boolean) -> Unit,
+    onDisarmNext: (ScheduledAlarm) -> Unit,
 ) {
     val moment = Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault())
     val locale = LocalConfiguration.current.locales[0]
@@ -545,6 +595,12 @@ private fun ClockScreen(
                     }
                     Text(formatClock(next.triggerAtMillis), color = Toxic, fontFamily = FontFamily.Monospace, fontSize = 25.sp)
                 }
+                Spacer(Modifier.height(10.dp))
+                SmallProtocolButton(
+                    label = "DISARM NEXT SIGNAL",
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { onDisarmNext(next) },
+                )
             }
         }
         Spacer(Modifier.height(10.dp))

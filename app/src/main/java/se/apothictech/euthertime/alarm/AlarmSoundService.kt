@@ -20,6 +20,7 @@ class AlarmSoundService : Service() {
     private var audioFocusRequest: AudioFocusRequest? = null
     private val volumeHandler = Handler(Looper.getMainLooper())
     private var volumeRamp: Runnable? = null
+    private var activeAlarmId = -1
 
     override fun onCreate() {
         super.onCreate()
@@ -39,6 +40,8 @@ class AlarmSoundService : Service() {
             kind = kind,
         )
 
+        activeAlarmId = alarm.id
+        ActiveAlarmStore.markActive(this, alarm.id)
         startForeground(AlarmNotifications.notificationId(alarm.id), AlarmNotifications.build(this, alarm))
         beginSignal(alarm.stageRole, alarm.soundProfile)
         return START_NOT_STICKY
@@ -113,6 +116,7 @@ class AlarmSoundService : Service() {
     }
 
     override fun onDestroy() {
+        ActiveAlarmStore.clear(this, activeAlarmId.takeIf { it >= 0 })
         volumeRamp?.let(volumeHandler::removeCallbacks)
         volumeRamp = null
         mediaPlayer?.runCatching { stop() }

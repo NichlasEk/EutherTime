@@ -122,6 +122,7 @@ class AlarmRingActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
     }
 
     private fun complete(id: Int, snooze: Boolean) {
+        ActiveAlarmStore.clear(this, id)
         sendBroadcast(
             Intent(this, AlarmActionReceiver::class.java)
                 .setAction(if (snooze) AlarmActionReceiver.ACTION_SNOOZE else AlarmActionReceiver.ACTION_DISMISS)
@@ -132,6 +133,7 @@ class AlarmRingActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
     }
 
     private fun dismissWakeSet(id: Int) {
+        ActiveAlarmStore.clear(this, id)
         sendBroadcast(
             Intent(this, AlarmActionReceiver::class.java)
                 .setAction(AlarmActionReceiver.ACTION_CLEAR_WAKE_SET_WITH_GUARD)

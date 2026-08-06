@@ -46,6 +46,7 @@ Turn the current proximity-based wake grouping into an explicit model.
   - `NEXT SIGNAL` ends the current stage and keeps later stages.
   - `I'M UP · CLEAR SET` skips the remaining occurrences in the current set, not future weeks.
 - Pre-alarm controls offer `THIS ALARM`, `SKIP NEXT`, and `CLEAR WAKE SET` where applicable.
+- `0.4.0-beta4` keeps the next signal actionable on the clock screen, promotes the silent pre-alarm through a fresh public lock-screen channel, and restores the active ringing surface whenever the app is opened before Snooze/Dismiss.
 - A one-tap `SKIP TOMORROW` action advances only the next occurrence while retaining its weekly schedule.
 
 ## Phase 2 — Progressive wake and safety check

@@ -16,7 +16,7 @@ import java.util.Date
 
 object AlarmNotifications {
     const val CHANNEL_ID = "euthertime_alarm_v1"
-    const val REMINDER_CHANNEL_ID = "euthertime_pre_alarm_v1"
+    const val REMINDER_CHANNEL_ID = "euthertime_pre_alarm_v2"
 
     fun notificationId(alarmId: Int): Int = 20_000 + (alarmId % 10_000)
     fun reminderNotificationId(alarmId: Int): Int = 40_000 + (alarmId % 10_000)
@@ -77,19 +77,40 @@ object AlarmNotifications {
             AlarmActionReceiver.ACTION_CANCEL_WAKE_SET,
         )
         val alarmTime = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(alarm.triggerAtMillis))
-        val notification = NotificationCompat.Builder(context, REMINDER_CHANNEL_ID)
+        val title = context.getString(R.string.pre_alarm_title, alarmTime)
+        val message = context.getString(R.string.pre_alarm_message, alarm.label, alarmTime)
+        val disarmLabel = context.getString(R.string.disarm_at, alarmTime)
+        val publicNotification = NotificationCompat.Builder(context, REMINDER_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_euthertime)
             .setColor(Color.rgb(116, 255, 99))
-            .setContentTitle(context.getString(R.string.pre_alarm_title))
-            .setContentText(context.getString(R.string.pre_alarm_message, alarm.label, alarmTime))
+            .setContentTitle(title)
+            .setContentText(message)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setSilent(true)
-            .setOnlyAlertOnce(true)
-            .setAutoCancel(true)
+            .setOngoing(true)
             .setContentIntent(openAppIntent)
-            .addAction(0, context.getString(R.string.disarm_this), cancelIntent)
+            .addAction(0, disarmLabel, cancelIntent)
+            .build()
+        val notification = NotificationCompat.Builder(context, REMINDER_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_euthertime)
+            .setColor(Color.rgb(116, 255, 99))
+            .setContentTitle(title)
+            .setContentText(message)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setPublicVersion(publicNotification)
+            .setSilent(true)
+            .setOnlyAlertOnce(true)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .setWhen(alarm.triggerAtMillis)
+            .setShowWhen(true)
+            .setContentIntent(openAppIntent)
+            .addAction(0, disarmLabel, cancelIntent)
             .apply {
                 if (AlarmScheduler.hasWakeSetCompanions(context, alarm) && !alarm.nfcChallengeEnabled) {
                     addAction(0, context.getString(R.string.disarm_set), cancelSetIntent)
@@ -206,6 +227,7 @@ object AlarmNotifications {
             .setAutoCancel(false)
             .setContentIntent(ringPendingIntent)
             .setFullScreenIntent(ringPendingIntent, true)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .addAction(0, context.getString(R.string.snooze), snoozeIntent)
             .addAction(
                 0,

@@ -21,6 +21,7 @@ object AlarmIntegrityInspector {
         val alarmManager = context.getSystemService(AlarmManager::class.java)
         val notificationManager = context.getSystemService(NotificationManager::class.java)
         AlarmNotifications.ensureChannel(context)
+        AlarmNotifications.ensureReminderChannel(context)
         val exactAlarmReady = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()
         val notificationPermission = Build.VERSION.SDK_INT < 33 ||
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
@@ -30,6 +31,10 @@ object AlarmIntegrityInspector {
         val alarmChannelReady = Build.VERSION.SDK_INT < 26 || run {
             val channel = notificationManager.getNotificationChannel(AlarmNotifications.CHANNEL_ID)
             channel != null && channel.importance != NotificationManager.IMPORTANCE_NONE
+        }
+        val reminderChannelReady = Build.VERSION.SDK_INT < 26 || run {
+            val channel = notificationManager.getNotificationChannel(AlarmNotifications.REMINDER_CHANNEL_ID)
+            channel != null && channel.importance >= NotificationManager.IMPORTANCE_DEFAULT
         }
         val alarmToneReady = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM) != null ||
             RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION) != null
@@ -43,6 +48,11 @@ object AlarmIntegrityInspector {
             AlarmIntegrityCheck("NOTIFICATIONS", if (notificationsEnabled) "Channel may alert" else "Permission or app notifications blocked", notificationsEnabled),
             AlarmIntegrityCheck("LOCK SCREEN", if (fullScreenReady) "Full-screen signal permitted" else "Full-screen alarm access required", fullScreenReady),
             AlarmIntegrityCheck("ALARM CHANNEL", if (alarmChannelReady) "Channel active" else "Alarm channel disabled", alarmChannelReady),
+            AlarmIntegrityCheck(
+                "PRE-ALARM CHANNEL",
+                if (reminderChannelReady) "Lock-screen reminder visible" else "Reminder channel muted or minimized",
+                reminderChannelReady,
+            ),
             AlarmIntegrityCheck("SIGNAL SOURCE", if (alarmToneReady) "Alarm tone available" else "No system tone found", alarmToneReady),
             AlarmIntegrityCheck(
                 "PLATFORM LINK",

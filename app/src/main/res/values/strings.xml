@@ -4,8 +4,9 @@
     <string name="alarm_channel_description">Active alarms, timers, and Egg Protocol alerts</string>
     <string name="pre_alarm_channel_name">Upcoming alarms</string>
     <string name="pre_alarm_channel_description">Silent notice up to 30 minutes before an alarm</string>
-    <string name="pre_alarm_title">PRE-ALARM</string>
+    <string name="pre_alarm_title">PRE-ALARM // %1$s</string>
     <string name="pre_alarm_message">%1$s · armed for %2$s</string>
+    <string name="disarm_at">Disarm %1$s</string>
     <string name="disarm">Disarm</string>
     <string name="disarm_this">This alarm</string>
     <string name="disarm_set">Clear wake set</string>
